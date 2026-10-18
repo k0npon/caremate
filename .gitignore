@@ -1,0 +1,48 @@
+# Generated resources
+models/
+outputs/
+__pycache__/
+*.pyc
+.venv/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# ===== Secrets =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+.aws/
+
+# ===== Third-party repositories =====
+third_party/
+
+# ===== MuJoCo models and generated scenes =====
+models/
+
+# ===== Model weights =====
+*.onnx
+*.pt
+*.pth
+*.ckpt
+
+# ===== Experiment outputs =====
+outputs/
+*.log
+core
+core.*
+
+# ===== Temporary files =====
+*.bak
+*.tmp
+.DS_Store
+
+# ===== Reference backups =====
+references/backups/

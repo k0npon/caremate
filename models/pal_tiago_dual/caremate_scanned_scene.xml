@@ -1,0 +1,469 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="CareMate v0.3 - scanned everyday objects">
+  <compiler angle="radian" meshdir="./assets/" autolimits="true" />
+  <option integrator="implicitfast" />
+  <asset>
+    <material name="black" rgba="0 0 0 1" />
+    <material name="gray10" rgba="0.1 0.1 0.1 1" />
+    <material name="gray25" rgba="0.25098 0.25098 0.25098 1" />
+    <material name="gray75" rgba="0.75294 0.75294 0.75294 1" />
+    <material name="mercury" rgba="0.9 0.9 0.9 1" />
+    <material name="white" rgba="1 1 1 1" />
+    <mesh file="sensors/sick_tim551.stl" />
+    <mesh file="base/base_link.stl" />
+    <mesh file="base/base_dock_link.stl" />
+    <mesh file="objects/antenna.stl" />
+    <mesh name="wheel_link_right" file="wheels/wheel_link.stl" />
+    <mesh name="wheel_link_left" file="wheels/wheel_link.stl" scale="1 1 -1" />
+    <mesh file="torso/torso_fix.stl" />
+    <mesh file="torso/torso_lift_dual_arm.stl" />
+    <mesh file="head/head_1.stl" />
+    <mesh file="head/head_2.stl" />
+    <mesh name="arm_left_1" file="arm/arm_1.stl" scale="1 -1 -1" />
+    <mesh name="arm_left_2" file="arm/arm_2.stl" scale="1 1 -1" />
+    <mesh name="arm_left_3" file="arm/arm_3.stl" scale="1 1 -1" />
+    <mesh name="arm_left_4" file="arm/arm_4.stl" scale="-1 -1 -1" />
+    <mesh name="arm_left_5" file="arm/arm_5-wrist-2017.stl" scale="-1 -1 -1" />
+    <mesh name="arm_left_6" file="arm/arm_6-wrist-2017.stl" scale="-1 1 1" />
+    <mesh name="arm_right_1" file="arm/arm_1.stl" scale="1 -1 1" />
+    <mesh name="arm_right_2" file="arm/arm_2.stl" />
+    <mesh name="arm_right_3" file="arm/arm_3.stl" />
+    <mesh name="arm_right_4" file="arm/arm_4.stl" />
+    <mesh name="arm_right_5" file="arm/arm_5-wrist-2017.stl" />
+    <mesh name="arm_right_6" file="arm/arm_6-wrist-2017.stl" />
+    <mesh file="gripper/gripper_link.stl" />
+    <mesh name="gripper_right_finger_link" file="gripper/gripper_finger_link.stl" scale="-1 -1 1" />
+    <mesh name="gripper_left_finger_link" file="gripper/gripper_finger_link.stl" />
+    <texture name="caremate_tissue_texture" type="cube" file="caremate_tissue.png" />
+    <material name="caremate_tissue" texture="caremate_tissue_texture" texuniform="false" />
+    <texture name="caremate_wipes_texture" type="cube" file="caremate_wipes.png" />
+    <material name="caremate_wipes" texture="caremate_wipes_texture" texuniform="false" />
+    <texture name="caremate_book_texture" type="cube" file="caremate_book.png" />
+    <material name="caremate_book" texture="caremate_book_texture" texuniform="false" />
+    <mesh name="studyTable_Main" file="caremate_furniture/studyTable/meshes/studyTable_Main.stl" scale="0.01 0.01 0.01" />
+    <mesh name="studyTable_Slide_Wood" file="caremate_furniture/studyTable/meshes/studyTable_Slide_Wood.stl" scale="0.01 0.01 0.01" />
+    <mesh name="studyTable_Slide_Handle" file="caremate_furniture/studyTable/meshes/studyTable_Slide_Handle.stl" scale="0.01 0.01 0.01" />
+    <mesh name="studyTable_Drawer_Wood" file="caremate_furniture/studyTable/meshes/studyTable_Drawer_Wood.stl" scale="0.01 0.01 0.01" />
+    <mesh name="studyTable_Drawer_Handle" file="caremate_furniture/studyTable/meshes/studyTable_Drawer_Handle.stl" scale="0.01 0.01 0.01" />
+    <texture name="T_Wood_studyTable" type="cube" height="1" width="1" file="caremate_furniture_textures/studyTable/wood0.png" />
+    <texture name="T_Metal_studyTable" type="cube" height="1" width="1" file="caremate_furniture_textures/studyTable/metal0.png" />
+    <material name="M_Wood_studyTable" texture="T_Wood_studyTable" rgba="0.8 0.8 0.8 1" shininess="0.2" reflectance="0.3" texuniform="false" />
+    <material name="M_Metal_studyTable" texture="T_Metal_studyTable" texrepeat="3 3" reflectance="0.7" texuniform="false" />
+    <texture type="2d" name="gso_reading_book_texture" file="caremate_scanned_textures/reading_book/texture.png" />
+    <material name="gso_reading_book_material_0" texture="gso_reading_book_texture" specular="0.5" shininess="0.5" />
+    <mesh name="gso_reading_book_model" file="caremate_scanned/reading_book/model.obj" />
+    <mesh name="gso_reading_book_model_collision_0" file="caremate_scanned/reading_book/model_collision_0.obj" />
+    <mesh name="gso_reading_book_model_collision_1" file="caremate_scanned/reading_book/model_collision_1.obj" />
+    <mesh name="gso_reading_book_model_collision_2" file="caremate_scanned/reading_book/model_collision_2.obj" />
+    <mesh name="gso_reading_book_model_collision_3" file="caremate_scanned/reading_book/model_collision_3.obj" />
+    <mesh name="gso_reading_book_model_collision_4" file="caremate_scanned/reading_book/model_collision_4.obj" />
+    <mesh name="gso_reading_book_model_collision_5" file="caremate_scanned/reading_book/model_collision_5.obj" />
+    <mesh name="gso_reading_book_model_collision_6" file="caremate_scanned/reading_book/model_collision_6.obj" />
+    <mesh name="gso_reading_book_model_collision_7" file="caremate_scanned/reading_book/model_collision_7.obj" />
+    <mesh name="gso_reading_book_model_collision_8" file="caremate_scanned/reading_book/model_collision_8.obj" />
+    <mesh name="gso_reading_book_model_collision_9" file="caremate_scanned/reading_book/model_collision_9.obj" />
+    <mesh name="gso_reading_book_model_collision_10" file="caremate_scanned/reading_book/model_collision_10.obj" />
+    <mesh name="gso_reading_book_model_collision_11" file="caremate_scanned/reading_book/model_collision_11.obj" />
+    <mesh name="gso_reading_book_model_collision_12" file="caremate_scanned/reading_book/model_collision_12.obj" />
+    <mesh name="gso_reading_book_model_collision_13" file="caremate_scanned/reading_book/model_collision_13.obj" />
+    <mesh name="gso_reading_book_model_collision_14" file="caremate_scanned/reading_book/model_collision_14.obj" />
+    <mesh name="gso_reading_book_model_collision_15" file="caremate_scanned/reading_book/model_collision_15.obj" />
+    <mesh name="gso_reading_book_model_collision_16" file="caremate_scanned/reading_book/model_collision_16.obj" />
+    <mesh name="gso_reading_book_model_collision_17" file="caremate_scanned/reading_book/model_collision_17.obj" />
+    <mesh name="gso_reading_book_model_collision_18" file="caremate_scanned/reading_book/model_collision_18.obj" />
+    <mesh name="gso_reading_book_model_collision_19" file="caremate_scanned/reading_book/model_collision_19.obj" />
+    <mesh name="gso_reading_book_model_collision_20" file="caremate_scanned/reading_book/model_collision_20.obj" />
+    <mesh name="gso_reading_book_model_collision_21" file="caremate_scanned/reading_book/model_collision_21.obj" />
+    <mesh name="gso_reading_book_model_collision_22" file="caremate_scanned/reading_book/model_collision_22.obj" />
+    <mesh name="gso_reading_book_model_collision_23" file="caremate_scanned/reading_book/model_collision_23.obj" />
+    <mesh name="gso_reading_book_model_collision_24" file="caremate_scanned/reading_book/model_collision_24.obj" />
+    <mesh name="gso_reading_book_model_collision_25" file="caremate_scanned/reading_book/model_collision_25.obj" />
+    <mesh name="gso_reading_book_model_collision_26" file="caremate_scanned/reading_book/model_collision_26.obj" />
+    <mesh name="gso_reading_book_model_collision_27" file="caremate_scanned/reading_book/model_collision_27.obj" />
+    <mesh name="gso_reading_book_model_collision_28" file="caremate_scanned/reading_book/model_collision_28.obj" />
+    <mesh name="gso_reading_book_model_collision_29" file="caremate_scanned/reading_book/model_collision_29.obj" />
+    <mesh name="gso_reading_book_model_collision_30" file="caremate_scanned/reading_book/model_collision_30.obj" />
+    <mesh name="gso_reading_book_model_collision_31" file="caremate_scanned/reading_book/model_collision_31.obj" />
+    <texture type="2d" name="gso_personal_care_box_texture" file="caremate_scanned_textures/personal_care_box/texture.png" />
+    <material name="gso_personal_care_box_material_0" texture="gso_personal_care_box_texture" specular="0.5" shininess="0.5" />
+    <mesh name="gso_personal_care_box_model" file="caremate_scanned/personal_care_box/model.obj" />
+    <mesh name="gso_personal_care_box_model_collision_0" file="caremate_scanned/personal_care_box/model_collision_0.obj" />
+    <mesh name="gso_personal_care_box_model_collision_1" file="caremate_scanned/personal_care_box/model_collision_1.obj" />
+    <mesh name="gso_personal_care_box_model_collision_2" file="caremate_scanned/personal_care_box/model_collision_2.obj" />
+    <mesh name="gso_personal_care_box_model_collision_3" file="caremate_scanned/personal_care_box/model_collision_3.obj" />
+    <mesh name="gso_personal_care_box_model_collision_4" file="caremate_scanned/personal_care_box/model_collision_4.obj" />
+    <mesh name="gso_personal_care_box_model_collision_5" file="caremate_scanned/personal_care_box/model_collision_5.obj" />
+    <mesh name="gso_personal_care_box_model_collision_6" file="caremate_scanned/personal_care_box/model_collision_6.obj" />
+    <mesh name="gso_personal_care_box_model_collision_7" file="caremate_scanned/personal_care_box/model_collision_7.obj" />
+    <mesh name="gso_personal_care_box_model_collision_8" file="caremate_scanned/personal_care_box/model_collision_8.obj" />
+    <mesh name="gso_personal_care_box_model_collision_9" file="caremate_scanned/personal_care_box/model_collision_9.obj" />
+    <mesh name="gso_personal_care_box_model_collision_10" file="caremate_scanned/personal_care_box/model_collision_10.obj" />
+    <mesh name="gso_personal_care_box_model_collision_11" file="caremate_scanned/personal_care_box/model_collision_11.obj" />
+    <mesh name="gso_personal_care_box_model_collision_12" file="caremate_scanned/personal_care_box/model_collision_12.obj" />
+    <mesh name="gso_personal_care_box_model_collision_13" file="caremate_scanned/personal_care_box/model_collision_13.obj" />
+    <mesh name="gso_personal_care_box_model_collision_14" file="caremate_scanned/personal_care_box/model_collision_14.obj" />
+    <mesh name="gso_personal_care_box_model_collision_15" file="caremate_scanned/personal_care_box/model_collision_15.obj" />
+    <mesh name="gso_personal_care_box_model_collision_16" file="caremate_scanned/personal_care_box/model_collision_16.obj" />
+    <mesh name="gso_personal_care_box_model_collision_17" file="caremate_scanned/personal_care_box/model_collision_17.obj" />
+    <mesh name="gso_personal_care_box_model_collision_18" file="caremate_scanned/personal_care_box/model_collision_18.obj" />
+    <mesh name="gso_personal_care_box_model_collision_19" file="caremate_scanned/personal_care_box/model_collision_19.obj" />
+    <mesh name="gso_personal_care_box_model_collision_20" file="caremate_scanned/personal_care_box/model_collision_20.obj" />
+    <mesh name="gso_personal_care_box_model_collision_21" file="caremate_scanned/personal_care_box/model_collision_21.obj" />
+    <mesh name="gso_personal_care_box_model_collision_22" file="caremate_scanned/personal_care_box/model_collision_22.obj" />
+    <mesh name="gso_personal_care_box_model_collision_23" file="caremate_scanned/personal_care_box/model_collision_23.obj" />
+    <mesh name="gso_personal_care_box_model_collision_24" file="caremate_scanned/personal_care_box/model_collision_24.obj" />
+    <mesh name="gso_personal_care_box_model_collision_25" file="caremate_scanned/personal_care_box/model_collision_25.obj" />
+    <mesh name="gso_personal_care_box_model_collision_26" file="caremate_scanned/personal_care_box/model_collision_26.obj" />
+    <mesh name="gso_personal_care_box_model_collision_27" file="caremate_scanned/personal_care_box/model_collision_27.obj" />
+    <mesh name="gso_personal_care_box_model_collision_28" file="caremate_scanned/personal_care_box/model_collision_28.obj" />
+    <mesh name="gso_personal_care_box_model_collision_29" file="caremate_scanned/personal_care_box/model_collision_29.obj" />
+    <mesh name="gso_personal_care_box_model_collision_30" file="caremate_scanned/personal_care_box/model_collision_30.obj" />
+    <mesh name="gso_personal_care_box_model_collision_31" file="caremate_scanned/personal_care_box/model_collision_31.obj" />
+  </asset>
+  <default class="main">
+    <geom contype="0" conaffinity="1" group="1" type="mesh" mass="0" />
+    <joint axis="0 0 1" />
+    <default class="arm">
+      <geom contype="1" conaffinity="1" />
+      <joint frictionloss="1" />
+    </default>
+    <default class="wheel">
+      <geom condim="6" />
+    </default>
+  </default>
+  <worldbody>
+    <body name="base_link">
+      <joint name="reference" type="free" />
+      <inertial pos="-0.00511 -0.00037 0.13715" mass="59.53854" diaginertia="2.326 2.585 3.471" />
+      <geom pos="0 0 0.0762" material="gray75" mesh="base_link" />
+      <geom pos="-0.27512 0.18297 0.20864" quat="0 -0.382683 -0.92388 0" material="gray10" mesh="sick_tim551" />
+      <geom pos="0.27512 -0.18297 0.20864" quat="0 -0.92388 0.382683 0" material="gray10" mesh="sick_tim551" />
+      <geom pos="0.3535 0 0.1358" material="gray25" mesh="base_dock_link" />
+      <geom pos="-0.2015 -0.13 0.2927" material="black" mesh="antenna" />
+      <geom pos="-0.2015 0.13 0.2927" material="black" mesh="antenna" />
+      <geom pos="-0.062 0 0.2692" material="mercury" mesh="torso_fix" />
+      <geom size="0.09 0.1 0.275" pos="-0.062 0 0.5462" type="box" material="gray10" />
+      <body name="wheel_front_right_link" pos="0.244 -0.223175 0.0762" quat="1 -1 0 0" childclass="wheel">
+        <inertial pos="0 0 -0.000226" mass="0.997903" diaginertia="0.000634 0.000634 0.001139" />
+        <joint name="wheel_front_right_joint" actuatorfrcrange="-400 400" />
+        <geom material="gray10" mesh="wheel_link_right" conaffinity="0" />
+        <geom type="cylinder" size="0.0762 0.025" group="3" />
+      </body>
+      <body name="wheel_front_left_link" pos="0.244 0.223175 0.0762" quat="1 -1 0 0" childclass="wheel">
+        <inertial pos="0 0 -0.000226" mass="0.997903" diaginertia="0.000634 0.000634 0.001139" />
+        <joint name="wheel_front_left_joint" actuatorfrcrange="-400 400" />
+        <geom material="gray10" mesh="wheel_link_left" conaffinity="0" />
+        <geom type="cylinder" size="0.0762 0.025" group="3" />
+      </body>
+      <body name="wheel_rear_right_link" pos="-0.244 -0.223175 0.0762" quat="1 -1 0 0" childclass="wheel">
+        <inertial pos="0 0 -0.000226" mass="0.997903" diaginertia="0.000634 0.000634 0.001139" />
+        <joint name="wheel_rear_right_joint" actuatorfrcrange="-400 400" />
+        <geom material="gray10" mesh="wheel_link_right" conaffinity="0" />
+        <geom type="cylinder" size="0.0762 0.025" group="3" />
+      </body>
+      <body name="wheel_rear_left_link" pos="-0.244 0.223175 0.0762" quat="1 -1 0 0" childclass="wheel">
+        <inertial pos="0 0 -0.000226" mass="0.997903" diaginertia="0.000634 0.000634 0.001139" />
+        <joint name="wheel_rear_left_joint" actuatorfrcrange="-400 400" />
+        <geom material="gray10" mesh="wheel_link_left" conaffinity="0" />
+        <geom type="cylinder" size="0.0762 0.025" group="3" />
+      </body>
+      <body name="torso_lift_link" pos="-0.062 0 0.8662">
+        <inertial pos="0.039536 -0.002841 -0.190987" mass="7.338946" diaginertia="0.229088 0.245188 0.092397" />
+        <joint name="torso_lift_joint" type="slide" range="0 0.35" actuatorfrcrange="-500 500" damping="1000" />
+        <geom material="white" mesh="torso_lift_dual_arm" />
+        <body name="head_1_link" pos="0.182 0 0">
+          <inertial pos="-0.00508 0.00237 0.07229" mass="0.6222" diaginertia="0.00140223 0.00121968 0.000861083" />
+          <joint name="head_1_joint" range="-1.309 1.309" actuatorfrcrange="-5.197 5.197" damping="0.5" />
+          <geom material="white" mesh="head_1" />
+          <body name="head_2_link" pos="0.005 0 0.098" quat="1 1 0 0">
+            <inertial pos="0.0558274 0.0609987 1.58542e-05" mass="0.88693" diaginertia="0.00554181 0.00436261 0.00347586" />
+            <joint name="head_2_joint" range="-1.0472 0.785398" actuatorfrcrange="-5.197 5.197" damping="0.5" />
+            <geom material="white" mesh="head_2" />
+            <camera name="head_rgb" pos="0.08 0.04 0.035" xyaxes="0 0 1 0 1 0" fovy="65" />
+          </body>
+        </body>
+        <body name="arm_left_1_link" pos="0.02556 0.19 -0.171" quat="0 1 1 0" childclass="arm">
+          <inertial pos="0.061191 -0.022397 0.012835" mass="1.56343" diaginertia="0.00510233 0.00510233 0.00510233" />
+          <joint name="arm_left_1_joint" range="-1.1781 1.5708" actuatorfrcrange="-43 43" damping="40" />
+          <geom material="white" mesh="arm_left_1" />
+          <body name="arm_left_2_link" pos="0.125 -0.0195 0.031" quat="1 1 0 0">
+            <inertial pos="0.030432 0.000229 0.005942" mass="1.8004" diaginertia="0.00437039 0.00432895 0.00178367" />
+            <joint name="arm_left_2_joint" range="-1.1781 1.5708" actuatorfrcrange="-43 43" damping="40" />
+            <geom material="gray10" mesh="arm_left_2" />
+            <body name="arm_left_3_link" pos="0.0895 0 -0.0015" quat="0.5 0.5 0.5 0.5">
+              <inertial pos="0.007418 -0.004361 0.134194" mass="1.8" diaginertia="0.0199798 0.0197147 0.00264646" />
+              <joint name="arm_left_3_joint" range="-0.785398 3.92699" actuatorfrcrange="-26 26" damping="40" />
+              <geom material="gray10" mesh="arm_left_3" />
+              <body name="arm_left_4_link" pos="-0.02 -0.027 0.222" quat="0.5 0.5 -0.5 0.5">
+                <inertial pos="0.095658 -0.014666 -0.018133" mass="1.4327" diaginertia="0.002040 0.008424 0.008686" />
+                <joint name="arm_left_4_joint" range="-0.392699 2.35619" actuatorfrcrange="-26 26" damping="40" />
+                <geom material="gray10" mesh="arm_left_4" />
+                <body name="arm_left_5_link" pos="0.162 -0.02 -0.027" quat="1 0 -1 0">
+                  <inertial pos="0.001078 -0.000151 0.077173" mass="1.65582" diaginertia="0.00614362 0.00564 0.001797" />
+                  <joint name="arm_left_5_joint" range="-2.0944 2.0944" actuatorfrcrange="-3 3" damping="1" />
+                  <geom material="mercury" mesh="arm_left_5" />
+                  <body name="arm_left_6_link" pos="0 0 -0.15" quat="0.5 -0.5 -0.5 -0.5">
+                    <inertial pos="-0.000153 -0.003122 0.000183" mass="0.370063" diaginertia="0.000215 0.000174828 0.000169172" />
+                    <joint name="arm_left_6_joint" range="-1.41372 1.41372" actuatorfrcrange="-6.6 6.6" damping="1" />
+                    <geom material="mercury" mesh="arm_left_6" />
+                    <body name="arm_left_7_link" quat="0.5 0.5 0.5 0.5">
+                      <inertial pos="0.000156301 0.000155213 -0.07437" mass="1.13701" diaginertia="0.00313273 0.00277743 0.000778245" />
+                      <joint name="arm_left_7_joint" range="-2.0944 2.0944" actuatorfrcrange="-6.6 6.6" damping="1" />
+                      <geom size="0.005 0.0025" pos="0 0 -0.047" quat="0 -1 1 0" type="cylinder" material="mercury" />
+                      <geom size="0.0225 0.00785" pos="0 0 -0.05385" quat="0 0 1 0" type="cylinder" material="mercury" />
+                      <geom size="0.025 0.004875" pos="0 0 -0.066575" quat="0 -1 1 0" type="cylinder" material="gray10" />
+                      <geom pos="0 0 -0.076575" quat="1 0 0 -1" material="white" mesh="gripper_link" />
+                      <body name="gripper_left_right_finger_link" pos="0 0 -0.076575" quat="1 0 0 -1">
+                        <inertial pos="0.008658 0.019724 -0.149125" mass="0.107001" diaginertia="0.000242 0.000236 0.000018" />
+                        <joint name="gripper_left_right_finger_joint" axis="1 0 0" type="slide" range="0 0.045" damping="1" />
+                        <geom quat="4.63268e-05 0 0 1" material="black" mesh="gripper_right_finger_link" />
+                      </body>
+                      <body name="gripper_left_left_finger_link" pos="0 0 -0.076575" quat="1 0 0 -1">
+                        <inertial pos="-0.008658 -0.019724 -0.149125" mass="0.107001" diaginertia="0.000242 0.000236 0.000018" />
+                        <joint name="gripper_left_left_finger_joint" axis="-1 0 0" type="slide" range="0 0.045" damping="1" />
+                        <geom quat="4.63268e-05 0 0 1" material="black" mesh="gripper_left_finger_link" />
+                      </body>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+        <body name="arm_right_1_link" pos="0.02556 -0.19 -0.171" quat="1 0 0 -1" childclass="arm">
+          <inertial pos="0.061191 -0.022397 -0.012835" mass="1.56343" diaginertia="0.00510233 0.00510233 0.00510233" />
+          <joint name="arm_right_1_joint" range="-1.1781 1.5708" actuatorfrcrange="-43 43" damping="40" />
+          <geom material="white" mesh="arm_right_1" />
+          <body name="arm_right_2_link" pos="0.125 -0.0195 -0.031" quat="1 -1 0 0">
+            <inertial pos="0.030432 0.000229 -0.005942" mass="1.8004" diaginertia="0.00437229 0.00432701 0.0017837" />
+            <joint name="arm_right_2_joint" range="-1.1781 1.5708" actuatorfrcrange="-43 43" damping="40" />
+            <geom material="gray10" mesh="arm_right_2" />
+            <body name="arm_right_3_link" pos="0.0895 0 -0.0015" quat="0.5 -0.5 -0.5 0.5">
+              <inertial pos="0.007418 -0.004361 -0.134194" mass="1.8" diaginertia="0.0200771 0.0196154 0.00264853" />
+              <joint name="arm_right_3_joint" range="-3.53429 1.5708" actuatorfrcrange="-26 26" damping="40" />
+              <geom material="gray10" mesh="arm_right_3" />
+              <body name="arm_right_4_link" pos="-0.02 -0.027 -0.222" quat="0.5 -0.5 -0.5 -0.5">
+                <inertial pos="-0.095658 0.014666 0.018133" mass="1.4327" diaginertia="0.002040 0.008424 0.008686" />
+                <joint name="arm_right_4_joint" range="-0.392699 2.35619" actuatorfrcrange="-26 26" damping="40" />
+                <geom material="gray10" mesh="arm_right_4" />
+                <body name="arm_right_5_link" pos="-0.162 0.02 0.027" quat="1 0 -1 0">
+                  <inertial pos="0.001078 -0.000151 -0.077173" mass="0.935914" diaginertia="0.00103619 0.000794527 0.000439824" />
+                  <joint name="arm_right_5_joint" range="-2.0944 2.0944" actuatorfrcrange="-3 3" damping="1" />
+                  <geom material="mercury" mesh="arm_right_5" />
+                  <body name="arm_right_6_link" pos="0 0 0.15" quat="0.5 -0.5 -0.5 -0.5">
+                    <inertial pos="-0.000153 -0.003122 0.000183" mass="0.302758" diaginertia="3.85419e-05 3.33205e-05 3.29226e-05" />
+                    <joint name="arm_right_6_joint" range="-1.41372 1.41372" actuatorfrcrange="-6.6 6.6" damping="1" />
+                    <geom material="mercury" mesh="arm_right_6" />
+                    <body name="arm_right_7_link" quat="0.5 0.5 0.5 0.5">
+                      <inertial pos="-0.000173894 0.000176395 0.0817355" mass="1.00276" diaginertia="0.0025841 0.0022568 0.000746434" />
+                      <joint name="arm_right_7_joint" range="-2.0944 2.0944" actuatorfrcrange="-6.6 6.6" damping="1" />
+                      <geom size="0.005 0.0025" pos="0 0 0.047" quat="-1 0 0 1" type="cylinder" material="mercury" />
+                      <geom size="0.0225 0.00785" pos="0 0 0.05385" quat="-1 0 0 0" type="cylinder" material="mercury" />
+                      <geom size="0.025 0.004875" pos="0 0 0.066575" quat="-1 0 0 1" type="cylinder" material="gray10" />
+                      <geom pos="0 0 0.076575" quat="0 -1 1 0" material="white" mesh="gripper_link" />
+                      <body name="gripper_right_right_finger_link" pos="0 0 0.076575" quat="0 -1 1 0">
+                        <inertial pos="0.008658 0.019724 -0.149125" mass="0.107001" diaginertia="0.000242 0.000236 0.000018" />
+                        <joint name="gripper_right_right_finger_joint" axis="1 0 0" type="slide" range="0 0.045" damping="1" />
+                        <geom quat="4.63268e-05 0 0 1" material="black" mesh="gripper_right_finger_link" />
+                      </body>
+                      <body name="gripper_right_left_finger_link" pos="0 0 0.076575" quat="0 -1 1 0">
+                        <inertial pos="-0.008658 -0.019724 -0.149125" mass="0.107001" diaginertia="0.000242 0.000236 0.000018" />
+                        <joint name="gripper_right_left_finger_joint" axis="-1 0 0" type="slide" range="0 0.045" damping="1" />
+                        <geom quat="4.63268e-05 0 0 1" material="black" mesh="gripper_left_finger_link" />
+                      </body>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+    <geom name="caremate_floor" type="plane" size="6 6 0.1" rgba="0.89 0.91 0.88 1" friction="1 0.01 0.001" condim="3" />
+    <light name="caremate_room_light" directional="true" pos="1 -1 3.5" dir="-0.2 0.3 -1" diffuse="0.85 0.85 0.85" />
+    <light name="caremate_fill_light" pos="3 2 3" dir="-0.3 -0.2 -1" diffuse="0.45 0.45 0.45" />
+    <geom name="north_wall" type="box" pos="1.4 2.45 1.4" size="4.0 0.06 1.4" rgba="0.89 0.94 0.95 1" />
+    <geom name="west_wall" type="box" pos="-1.4 0 1.4" size="0.06 2.5 1.4" rgba="0.84 0.89 0.91 1" />
+    <geom name="delivery_top" type="box" pos="2.5 0.00 0.735" size="0.35 0.23 0.035" rgba="0.74 0.64 0.50 1" />
+    <geom name="delivery_leg" type="box" pos="2.50 0.00 0.355" size="0.045 0.045 0.355" rgba="0.62 0.53 0.45 1" />
+    <geom name="wheelchair_seat" type="box" pos="2.70 1.00 0.48" size="0.30 0.28 0.06" rgba="0.18 0.24 0.34 1" />
+    <geom name="wheelchair_back" type="box" pos="2.91 1.00 0.75" size="0.06 0.28 0.36" rgba="0.18 0.24 0.34 1" />
+    <geom name="wheelchair_arm_L" type="box" pos="2.7 0.68 0.69" size="0.27 0.035 0.04" rgba="0.16 0.20 0.27 1" />
+    <geom name="wheelchair_arm_R" type="box" pos="2.7 1.32 0.69" size="0.27 0.035 0.04" rgba="0.16 0.20 0.27 1" />
+    <geom name="wheelchair_left_rear_wheel" type="cylinder" pos="2.92 0.72 0.26" euler="1.57079633 0 0" size="0.26 0.025" rgba="0.13 0.14 0.18 1" />
+    <geom name="wheelchair_left_front_wheel" type="cylinder" pos="2.47 0.72 0.09" euler="1.57079633 0 0" size="0.09 0.025" rgba="0.13 0.14 0.18 1" />
+    <geom name="wheelchair_right_rear_wheel" type="cylinder" pos="2.92 1.28 0.26" euler="1.57079633 0 0" size="0.26 0.025" rgba="0.13 0.14 0.18 1" />
+    <geom name="wheelchair_right_front_wheel" type="cylinder" pos="2.47 1.28 0.09" euler="1.57079633 0 0" size="0.09 0.025" rgba="0.13 0.14 0.18 1" />
+    <site name="delivery_goal" pos="2.48 0 0.80" type="sphere" size="0.035" rgba="0.1 0.8 0.3 0.8" />
+    <body name="resident_static" pos="2.70 1.00 0">
+      <geom name="resident_visual_0" type="capsule" size="0.07 0.07" pos="0 0 0.596" quat="0.69863199 0.69863199 0.10914828 -0.10914828" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_1" type="capsule" size="0.06 0.06" pos="-0.046125615 0 0.48476859" quat="0.69863199 0.69863199 0.10914828 -0.10914828" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_2" type="sphere" size="0.09" pos="0.057953403 0 0.77694586" quat="0.98801483 0 0.15435897 0" rgba="0.68 0.48 0.36 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_3" type="capsule" size="0.06 0.06" pos="-0.11136905 0 0.36404726" quat="0.66302145 0.66302145 0.24576933 -0.24576933" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_4" type="capsule" size="0.09 0.07" pos="-0.23408406 0 0.25194897" quat="0.66302145 0.66302145 0.24576933 -0.24576933" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_5" type="capsule" size="0.06 0.17007351" pos="-0.082287078 -0.10931399 0.25722461" quat="0.5807457 -0.23268939 -0.76738123 0.14041408" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_6" type="capsule" size="0.049 0.15" pos="-0.0065924272 -0.15160533 0.20661045" quat="0.88670299 -0.18392813 0.37270382 -0.20253424" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_7" type="capsule" size="0.027 0.10547512" pos="-0.091068391 -0.21822279 0.026838054" quat="0.70724416 -0.061538995 -0.70424996 0.0071168885" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_8" type="capsule" size="0.027 0.10547512" pos="-0.091782536 -0.17822927 0.026749453" quat="0.70739307 0.072535877 -0.70305305 0.0070710819" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_9" type="capsule" size="0.06 0.17007351" pos="-0.082287078 0.10931399 0.25722461" quat="0.5807457 0.23268939 -0.76738123 -0.14041408" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_10" type="capsule" size="0.049 0.15" pos="-0.0065924272 0.15160533 0.20661045" quat="0.88670299 0.18392813 0.37270382 0.20253424" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_11" type="capsule" size="0.027 0.10547512" pos="-0.091782536 0.17822927 0.026749453" quat="0.70739307 -0.072535877 -0.70305305 -0.0070710819" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_12" type="capsule" size="0.027 0.10547512" pos="-0.091068391 0.21822279 0.026838054" quat="0.70724416 0.061538995 -0.70424996 -0.0071168885" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_13" type="capsule" size="0.04 0.13856406" pos="0.070087371 -0.25 0.55255163" quat="0.92760567 -0.32116171 -0.18407955 0.050175555" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_14" type="capsule" size="0.031 0.13856406" pos="0.24798305 -0.26 0.48507477" quat="0.55112298 0.62043679 -0.54947784 -0.096931729" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_15" type="sphere" size="0.04" pos="0.36114586 -0.17 0.54333435" quat="0.82725456 -0.32116171 0.45824388 0.050175555" rgba="0.68 0.48 0.36 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_16" type="capsule" size="0.04 0.13856406" pos="0.070087371 0.25 0.55255163" quat="0.92760567 0.32116171 -0.18407955 -0.050175555" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_17" type="capsule" size="0.031 0.13856406" pos="0.24798305 0.26 0.48507477" quat="0.55112298 -0.62043679 -0.54947784 0.096931729" rgba="0.38 0.53 0.66 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_visual_18" type="sphere" size="0.04" pos="0.36114586 0.17 0.54333435" quat="0.82725456 0.32116171 0.45824388 -0.050175555" rgba="0.68 0.48 0.36 1" contype="0" conaffinity="0" group="2" />
+      <geom name="resident_torso_collision" type="capsule" fromto="0 0 0.67 0 0 1.1" size="0.22" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" />
+    </body>
+    <camera name="room_overview" pos="1.7 -4.2 2.8" xyaxes="0.96 0.28 0 -0.11 0.38 0.92" fovy="65" />
+    <body name="caremate_storage_studytable" pos="1.4 -0.45 0" euler="0 0 3.141592653589793">
+      <body name="studyTable_Main" pos="0 0 0">
+        <geom type="mesh" mesh="studyTable_Main" euler="-1.57 0 3.14" material="M_Wood_studyTable" group="1" contype="0" conaffinity="0" mass="0" />
+        <geom type="box" size=".6 .275 .025" pos="0 0 0.735" rgba="0 0 0 0" mass="40" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size="0.17 0.26 .05" pos="0.42 0 0.66" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size="0.17 0.26 .05" pos="-0.42 0 0.66" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size="0.025 0.025 0.305" pos="-0.565 0.235 0.305" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size="0.025 0.025 0.305" pos="-0.565 -0.235 0.305" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size="0.025 0.025 0.305" pos="0.565 0.235 0.305" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size="0.025 0.025 0.305" pos="0.565 -0.235 0.305" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size="0.6 0.01 0.175" pos="0 0.265 0.935" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size="0.6 0.11 0.01" pos="0 0.165 1.1" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size="0.01 0.11 0.175" pos="0.59 .165 .935" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size="0.01 0.11 0.175" pos="-0.59 .165 .935" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size="0.01 0.11 0.175" pos="0 .165 .935" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+      </body>
+      <body name="studyTable_Drawer" pos="0 0 0.655">
+        <geom type="mesh" mesh="studyTable_Drawer_Wood" euler="-1.57 0 3.14" material="M_Wood_studyTable" group="1" contype="0" conaffinity="0" mass="0" />
+        <geom type="mesh" mesh="studyTable_Drawer_Handle" euler="-1.57 0 3.14" material="M_Metal_studyTable" group="1" contype="0" conaffinity="0" mass="0" />
+        <geom type="box" size=".24 .26 .01" pos="0 0 -0.04" rgba="0 0 0 0" mass="2" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size=".24 .01 .05" pos="0 .25 0" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size=".24 .01 .05" pos="0 -.25 0" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size=".01 .26 .05" pos="-.23 0 0" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="box" size=".01 .26 .05" pos=".23 0 0" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="capsule" size=".014 .045" pos=".08203 -.315 .01" euler="1.57 0 0" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="capsule" size=".014 .045" pos="-.08203 -.315 .01" euler="1.57 0 0" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="capsule" size=".014 .08" pos="0 -.36 .01" euler="0 1.57 0" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <joint name="studyTable_Drawer_Joint" type="slide" pos="0 0 0" axis="0 1 0" limited="true" range="-0.48 0" damping="2" frictionloss="5" armature="0.1" />
+      </body>
+      <body name="studyTable_Slide" pos="-0.3 0.04 0.935">
+        <geom type="mesh" mesh="studyTable_Slide_Wood" euler="-1.57 0 3.14" material="M_Wood_studyTable" group="1" contype="0" conaffinity="0" mass="0" />
+        <geom type="mesh" mesh="studyTable_Slide_Handle" euler="-1.57 0 3.14" material="M_Metal_studyTable" group="1" contype="0" conaffinity="0" mass="0" />
+        <geom type="box" size=".3 .01 .175" pos="0 0 0" rgba="0 0 0 0" mass="1" group="3" contype="1" conaffinity="1" />
+        <geom type="capsule" size=".014 .042" pos="0 -.065 .08302" euler="1.57 0 0" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="capsule" size=".014 .042" pos="0 -.065 -.08302" euler="1.57 0 0" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <geom type="capsule" size=".014 .08" pos="0 -.11 0" euler="0 0 0" rgba="0 0 0 0" group="3" contype="1" conaffinity="1" />
+        <site name="slide_handle" type="sphere" size=".01" pos="0 -.11 0" />
+        <joint name="studyTable_Slide_Joint" type="slide" pos="0 0 0" axis="1 0 0" limited="true" range="0 .6" damping="2" frictionloss="5" armature="0.1" />
+      </body>
+    </body>
+    <body name="reading_book" pos="1.17 -0.57 0.763969" euler="0 0 0">
+      <freejoint name="reading_book_free" />
+      <inertial pos="-0.000496 -0.0035475 0.105215" mass="0.35" diaginertia="0.0013653005 0.0018668471 0.00065062367" />
+      <geom material="gso_reading_book_material_0" mesh="gso_reading_book_model" type="mesh" contype="0" conaffinity="0" group="2" name="reading_book_visual" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_0" type="mesh" group="3" name="reading_book_collision_0" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_1" type="mesh" group="3" name="reading_book_collision_1" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_2" type="mesh" group="3" name="reading_book_collision_2" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_3" type="mesh" group="3" name="reading_book_collision_3" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_4" type="mesh" group="3" name="reading_book_collision_4" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_5" type="mesh" group="3" name="reading_book_collision_5" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_6" type="mesh" group="3" name="reading_book_collision_6" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_7" type="mesh" group="3" name="reading_book_collision_7" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_8" type="mesh" group="3" name="reading_book_collision_8" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_9" type="mesh" group="3" name="reading_book_collision_9" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_10" type="mesh" group="3" name="reading_book_collision_10" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_11" type="mesh" group="3" name="reading_book_collision_11" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_12" type="mesh" group="3" name="reading_book_collision_12" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_13" type="mesh" group="3" name="reading_book_collision_13" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_14" type="mesh" group="3" name="reading_book_collision_14" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_15" type="mesh" group="3" name="reading_book_collision_15" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_16" type="mesh" group="3" name="reading_book_collision_16" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_17" type="mesh" group="3" name="reading_book_collision_17" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_18" type="mesh" group="3" name="reading_book_collision_18" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_19" type="mesh" group="3" name="reading_book_collision_19" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_20" type="mesh" group="3" name="reading_book_collision_20" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_21" type="mesh" group="3" name="reading_book_collision_21" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_22" type="mesh" group="3" name="reading_book_collision_22" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_23" type="mesh" group="3" name="reading_book_collision_23" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_24" type="mesh" group="3" name="reading_book_collision_24" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_25" type="mesh" group="3" name="reading_book_collision_25" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_26" type="mesh" group="3" name="reading_book_collision_26" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_27" type="mesh" group="3" name="reading_book_collision_27" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_28" type="mesh" group="3" name="reading_book_collision_28" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_29" type="mesh" group="3" name="reading_book_collision_29" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_30" type="mesh" group="3" name="reading_book_collision_30" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_reading_book_model_collision_31" type="mesh" group="3" name="reading_book_collision_31" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+    </body>
+    <body name="personal_care_box" pos="1.62 -0.55 0.764007" euler="0 0 0">
+      <freejoint name="personal_care_box_free" />
+      <inertial pos="-0.0005715 -0.0001555 0.111725" mass="0.18" diaginertia="0.00079608407 0.00085514211 0.0001531414" />
+      <geom material="gso_personal_care_box_material_0" mesh="gso_personal_care_box_model" type="mesh" contype="0" conaffinity="0" group="2" name="personal_care_box_visual" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_0" type="mesh" group="3" name="personal_care_box_collision_0" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_1" type="mesh" group="3" name="personal_care_box_collision_1" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_2" type="mesh" group="3" name="personal_care_box_collision_2" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_3" type="mesh" group="3" name="personal_care_box_collision_3" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_4" type="mesh" group="3" name="personal_care_box_collision_4" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_5" type="mesh" group="3" name="personal_care_box_collision_5" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_6" type="mesh" group="3" name="personal_care_box_collision_6" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_7" type="mesh" group="3" name="personal_care_box_collision_7" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_8" type="mesh" group="3" name="personal_care_box_collision_8" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_9" type="mesh" group="3" name="personal_care_box_collision_9" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_10" type="mesh" group="3" name="personal_care_box_collision_10" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_11" type="mesh" group="3" name="personal_care_box_collision_11" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_12" type="mesh" group="3" name="personal_care_box_collision_12" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_13" type="mesh" group="3" name="personal_care_box_collision_13" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_14" type="mesh" group="3" name="personal_care_box_collision_14" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_15" type="mesh" group="3" name="personal_care_box_collision_15" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_16" type="mesh" group="3" name="personal_care_box_collision_16" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_17" type="mesh" group="3" name="personal_care_box_collision_17" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_18" type="mesh" group="3" name="personal_care_box_collision_18" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_19" type="mesh" group="3" name="personal_care_box_collision_19" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_20" type="mesh" group="3" name="personal_care_box_collision_20" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_21" type="mesh" group="3" name="personal_care_box_collision_21" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_22" type="mesh" group="3" name="personal_care_box_collision_22" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_23" type="mesh" group="3" name="personal_care_box_collision_23" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_24" type="mesh" group="3" name="personal_care_box_collision_24" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_25" type="mesh" group="3" name="personal_care_box_collision_25" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_26" type="mesh" group="3" name="personal_care_box_collision_26" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_27" type="mesh" group="3" name="personal_care_box_collision_27" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_28" type="mesh" group="3" name="personal_care_box_collision_28" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_29" type="mesh" group="3" name="personal_care_box_collision_29" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_30" type="mesh" group="3" name="personal_care_box_collision_30" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+      <geom mesh="gso_personal_care_box_model_collision_31" type="mesh" group="3" name="personal_care_box_collision_31" rgba="0 0 0 0" contype="1" conaffinity="1" condim="3" friction="0.9 0.01 0.001" mass="0" />
+    </body>
+  </worldbody>
+  <contact>
+    <exclude body1="arm_left_2_link" body2="torso_lift_link" />
+    <exclude body1="arm_right_2_link" body2="torso_lift_link" />
+    <exclude body1="gripper_left_right_finger_link" body2="gripper_left_left_finger_link" />
+    <exclude body1="gripper_right_right_finger_link" body2="gripper_right_left_finger_link" />
+  </contact>
+  <visual>
+    <global offwidth="960" offheight="720" />
+  </visual>
+  <actuator>
+    <position name="hold_torso_lift_joint" joint="torso_lift_joint" kp="300" kv="20" />
+    <position name="hold_head_1_joint" joint="head_1_joint" kp="30" kv="5" />
+    <position name="hold_head_2_joint" joint="head_2_joint" kp="30" kv="5" />
+    <position name="hold_arm_left_1_joint" joint="arm_left_1_joint" kp="180" kv="10" />
+    <position name="hold_arm_left_2_joint" joint="arm_left_2_joint" kp="180" kv="10" />
+    <position name="hold_arm_left_3_joint" joint="arm_left_3_joint" kp="180" kv="10" />
+    <position name="hold_arm_left_4_joint" joint="arm_left_4_joint" kp="180" kv="10" />
+    <position name="hold_arm_left_5_joint" joint="arm_left_5_joint" kp="180" kv="10" />
+    <position name="hold_arm_left_6_joint" joint="arm_left_6_joint" kp="180" kv="10" />
+    <position name="hold_arm_left_7_joint" joint="arm_left_7_joint" kp="180" kv="10" />
+    <position name="hold_gripper_left_right_finger_joint" joint="gripper_left_right_finger_joint" kp="100" kv="10" />
+    <position name="hold_gripper_left_left_finger_joint" joint="gripper_left_left_finger_joint" kp="100" kv="10" />
+    <position name="hold_arm_right_1_joint" joint="arm_right_1_joint" kp="180" kv="10" />
+    <position name="hold_arm_right_2_joint" joint="arm_right_2_joint" kp="180" kv="10" />
+    <position name="hold_arm_right_3_joint" joint="arm_right_3_joint" kp="180" kv="10" />
+    <position name="hold_arm_right_4_joint" joint="arm_right_4_joint" kp="180" kv="10" />
+    <position name="hold_arm_right_5_joint" joint="arm_right_5_joint" kp="180" kv="10" />
+    <position name="hold_arm_right_6_joint" joint="arm_right_6_joint" kp="180" kv="10" />
+    <position name="hold_arm_right_7_joint" joint="arm_right_7_joint" kp="180" kv="10" />
+    <position name="hold_gripper_right_right_finger_joint" joint="gripper_right_right_finger_joint" kp="100" kv="10" />
+    <position name="hold_gripper_right_left_finger_joint" joint="gripper_right_left_finger_joint" kp="100" kv="10" />
+  </actuator>
+</mujoco>

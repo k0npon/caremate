@@ -276,7 +276,7 @@ def decide(res: PerceptionResult, is_last: bool) -> tuple[str, str]:
 
 
 def run_agent(target, backend: PerceptionBackend, camera: MuJoCoHeadCamera, policy: Policy,
-              budget: int, out: Path, save_images=True) -> dict:
+              budget: int, out: Path, save_images=True, scene: str | None = None) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     history, trace = [], []
     seen_ids = set()
@@ -323,7 +323,7 @@ def run_agent(target, backend: PerceptionBackend, camera: MuJoCoHeadCamera, poli
                                  "error": "PERCEPTION_ERROR"}.get(last.status, "BORDER")
                                 if last else "NO_OBSERVATION")
     result = {
-        "version": "v0.7", "target": target, "policy": policy.name, "budget": budget,
+        "version": "v0.7", "scene": scene, "target": target, "policy": policy.name, "budget": budget,
         "outcome": outcome, "observations": len(trace),
         "grasp_authorised": False,
         "note": "Uncalibrated visual evidence; localisation is not identity verification.",
@@ -369,9 +369,11 @@ def main():
     backend = PerceptionBackend(a.aliked, a.refs, extractor=ext)
     print(f"{backend.method}; warm-up {backend.warmup():.1f}s")
     camera = MuJoCoHeadCamera(a.scene)
-    out = a.out or ROOT / "outputs/agent_v0_7" / f"{datetime.now():%Y%m%d_%H%M%S}_{a.target}_{a.policy}"
+    layout = a.scene.stem.replace("caremate_room_v0_7", "").strip("_") or "default"
+    out = a.out or ROOT / "outputs/agent_v0_7" / f"{datetime.now():%Y%m%d_%H%M%S}_{layout}_{a.target}_{a.policy}"
     try:
-        run_agent(a.target, backend, camera, POLICIES[a.policy](a.seed), a.budget, out)
+        run_agent(a.target, backend, camera, POLICIES[a.policy](a.seed), a.budget, out,
+                  scene=a.scene.name)
     finally:
         camera.close()
         backend.close()

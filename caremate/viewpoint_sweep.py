@@ -195,6 +195,11 @@ def run(args: argparse.Namespace) -> Path:
 
             cam_pos = data.cam_xpos[cam_id].copy()
             cam_mat = data.cam_xmat[cam_id].copy()
+            # Proprioception only (camera pose via FK) - safe for runtime use,
+            # unlike the segmentation-derived columns in viewpoints.csv.
+            (out / "rgb" / f"{vid}.pose.json").write_text(json.dumps({
+                "pos": cam_pos.tolist(), "mat": cam_mat.tolist(), "fovy_deg": float(fovy),
+                "torso": torso, "pan": pan, "tilt": tilt}))
             # Optical axis (camera -z) in world frame.
             axis = -cam_mat.reshape(3, 3)[:, 2]
             row = {

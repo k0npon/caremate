@@ -1,0 +1,11 @@
+{
+  "name": "crunch_peanut",
+  "gso_folder": "Crunch_Girl_Scouts_Candy_Bars_Peanut_Butter_Creme_78_oz_box",
+  "face": "az270",
+  "texture_score": 633.4388427734375,
+  "size_wh": [
+    401,
+    480
+  ],
+  "note": "Canonical offline reference render; never used as runtime ground truth."
+}

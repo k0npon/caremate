@@ -1,0 +1,11 @@
+{
+  "name": "crunch_caramel",
+  "gso_folder": "Nestl_Crunch_Girl_Scouts_Cookie_Flavors_Caramel_Coconut_78_oz_box",
+  "face": "az270",
+  "texture_score": 553.8466186523438,
+  "size_wh": [
+    403,
+    480
+  ],
+  "note": "Canonical offline reference render; never used as runtime ground truth."
+}

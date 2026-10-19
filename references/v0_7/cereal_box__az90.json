@@ -1,0 +1,11 @@
+{
+  "name": "cereal_box",
+  "gso_folder": "Vans_Cereal_Honey_Nut_Crunch_11_oz_box",
+  "face": "az90",
+  "texture_score": 357.9963684082031,
+  "size_wh": [
+    347,
+    479
+  ],
+  "note": "Canonical offline reference render; never used as runtime ground truth."
+}

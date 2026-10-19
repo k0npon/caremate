@@ -1,0 +1,11 @@
+{
+  "name": "reading_book",
+  "gso_folder": "Eat_to_Live_The_Amazing_NutrientRich_Program_for_Fast_and_Sustained_Weight_Loss_Revised_Edition_Book",
+  "face": "az90",
+  "texture_score": 424.83673095703125,
+  "size_wh": [
+    322,
+    480
+  ],
+  "note": "Canonical offline reference render; never used as runtime ground truth."
+}

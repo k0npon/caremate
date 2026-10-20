@@ -1,0 +1,6 @@
+# CareMate AWS perception service (pinned). OpenCV 5 headless build with contrib (ALIKED).
+opencv-contrib-python-headless==5.0.0.93
+numpy==2.4.6
+fastapi==0.151.0
+uvicorn==0.53.0
+python-multipart==0.0.32

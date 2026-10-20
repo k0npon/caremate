@@ -1,0 +1,9 @@
+*
+!requirements-service.txt
+!caremate/__init__.py
+!caremate/perception_v0_7.py
+!caremate/workspace_v0_7.py
+!caremate/enrol_v0_7.py
+!caremate/service/
+!references/v0_7/
+caremate/service/__pycache__

@@ -77,6 +77,8 @@ class PerceptionResult:
     best_ref_size_px: int | None = None
     best_ref_face: str | None = None
     competitors: dict = field(default_factory=dict)  # other refs that passed
+    rejected_instances: list = field(default_factory=list)  # target matches that were look-alikes
+    notes: list = field(default_factory=list)
     per_reference: dict = field(default_factory=dict)
     latency_ms: dict = field(default_factory=dict)
     n_query_keypoints: int = 0
@@ -289,9 +291,20 @@ class IsolatedLightGlue:
         self.proc = None
 
 
+def _overlaps(a, b) -> bool:
+    """Same image region?  IoU > 0.3, or one box mostly inside the other."""
+    ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    small = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+    return _iou(a, b) > 0.3 or inter / max(1, small) > 0.5
+
+
 # ---------------------------------------------------------------- geometry
 def evaluate_v07(ref_pts, qry_pts, pairs, frame_wh, ref_wh, min_inliers=12,
-                 thresh_px=3.5) -> dict:
+                 thresh_px=3.5, frame_origin=(0, 0)) -> dict:
+    """frame_origin: where the full camera frame's (0,0) lies in query coordinates
+    negated - i.e. the query image is a crop starting at frame_origin in the frame."""
     """Homography verification. Heuristic gate, NOT a calibrated probability."""
     out = {"n_matches": len(pairs), "n_inliers": 0, "inlier_ratio": 0.0,
            "median_reprojection_px": None, "ref_coverage": 0.0,
@@ -329,7 +342,8 @@ def evaluate_v07(ref_pts, qry_pts, pairs, frame_wh, ref_wh, min_inliers=12,
     area = abs(float(cv2.contourArea(poly.astype(np.float32)))) if convex else 0.0
     visible = 0.0
     if convex and area >= 1.0:
-        frame = np.float32([[0, 0], [fw, 0], [fw, fh], [0, fh]])
+        ox, oy = frame_origin
+        frame = np.float32([[-ox, -oy], [fw - ox, -oy], [fw - ox, fh - oy], [-ox, fh - oy]])
         try:
             clipped, _ = cv2.intersectConvexConvex(poly.astype(np.float32), frame)
             visible = float(np.clip(clipped / area, 0, 1))
@@ -341,7 +355,7 @@ def evaluate_v07(ref_pts, qry_pts, pairs, frame_wh, ref_wh, min_inliers=12,
     x0, y0 = np.floor(q.min(0)).astype(int); x1, y1 = np.ceil(q.max(0)).astype(int)
     out.update(median_reprojection_px=round(med, 3), ref_coverage=round(coverage, 4),
                visible_projected_fraction=round(visible, 4), homography_scale=round(scale, 4),
-               H=H.tolist(),
+               H=H.tolist(), projected_area_px=round(area, 1),
                support_bbox_xyxy=[int(x0), int(y0), int(x1), int(y1)],
                projected_polygon_global=np.round(poly, 1).tolist() if convex else None)
     ok = (n >= min_inliers and out["inlier_ratio"] >= 0.35 and med <= 2.5 and convex
@@ -365,35 +379,55 @@ def _ncc(a, b, m):
     return float((a * b).sum() / d) if d > 1e-6 else None
 
 
-def discriminate(frame, ref_t, ref_c, H, H_ct=None, roi_mask=None, diff_thresh=40):
-    """Compare two look-alike references ONLY where they differ.
+def _ab(x):
+    """Lab chroma (a*, b*) as float: insensitive to brightness/shading changes."""
+    lab = cv2.cvtColor(x, cv2.COLOR_BGR2LAB).astype(np.float32)
+    return lab[..., 1:3]
 
-    `H_ct` registers the competitor reference onto the target reference (both
-    are renders of near-identical packages, but their crops are not pixel
-    aligned).  Pixels where the registered references differ form the
-    discriminative mask (e.g. the flavour band).  Both are then warped into
-    the frame with the TARGET's homography and compared by NCC on that mask.
-    Returns (ncc_target, ncc_competitor, discriminative_pixels).
+
+def discriminate(frame, ref_t, ref_c, H, H_ct=None, roi_mask=None, diff_thresh=18.0,
+                 min_px=60):
+    """Compare two look-alike references ONLY where their COLOURS differ.
+
+    Packaging variants differ mainly in hue (e.g. a red vs purple flavour
+    band), which grey-level comparisons miss.  Steps:
+      1. register the competitor reference onto the target reference (H_ct);
+      2. blur both and mark pixels whose Lab chroma differs by > diff_thresh;
+      3. warp both references into the frame with the target homography H,
+         blur the frame and the warps alike (fine text is not resolvable at
+         this distance anyway);
+      4. mean chroma distance frame<->target vs frame<->competitor on the mask.
+    Returns (margin, d_target, d_competitor, n_pixels); margin in [-1, 1],
+    positive = region looks like the target.  None if not measurable.
     Heuristic appearance check, not a probability.
     """
-    th, tw = ref_t.shape[:2]
     if H_ct is None:
-        return None, None, 0
-    rc = cv2.warpPerspective(ref_c, np.asarray(H_ct, np.float64), (tw, th))
-    valid = cv2.warpPerspective(np.full(ref_c.shape[:2], 255, np.uint8),
-                                np.asarray(H_ct, np.float64), (tw, th)) > 0
-    diff = np.abs(_gray(cv2.GaussianBlur(ref_t, (5, 5), 0)) - _gray(cv2.GaussianBlur(rc, (5, 5), 0)))
-    dmask = ((diff > diff_thresh) & valid).astype(np.uint8) * 255
+        return None, None, None, 0
+    th, tw = ref_t.shape[:2]
+    Hc = np.asarray(H_ct, np.float64)
+    rc = cv2.warpPerspective(ref_c, Hc, (tw, th))
+    valid = cv2.warpPerspective(np.full(ref_c.shape[:2], 255, np.uint8), Hc, (tw, th)) > 0
+    k = max(3, (min(th, tw) // 40) | 1)
+    dab = np.linalg.norm(_ab(cv2.GaussianBlur(ref_t, (k, k), 0)) - _ab(cv2.GaussianBlur(rc, (k, k), 0)), axis=2)
+    dmask = ((dab > diff_thresh) & valid).astype(np.uint8) * 255
     dmask = cv2.morphologyEx(dmask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
     fh, fw = frame.shape[:2]
     Hm = np.asarray(H, np.float64)
-    wt = cv2.warpPerspective(ref_t, Hm, (fw, fh))
-    wc = cv2.warpPerspective(rc, Hm, (fw, fh))
+    wt = cv2.warpPerspective(ref_t, Hm, (fw, fh), flags=cv2.INTER_AREA)
+    wc = cv2.warpPerspective(rc, Hm, (fw, fh), flags=cv2.INTER_AREA)
     wm = cv2.warpPerspective(dmask, Hm, (fw, fh), flags=cv2.INTER_NEAREST) > 0
+    wm = cv2.erode(wm.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
     if roi_mask is not None:
         wm &= roi_mask > 0
-    g = _gray(frame)
-    return _ncc(_gray(wt), g, wm), _ncc(_gray(wc), g, wm), int(wm.sum())
+    n = int(wm.sum())
+    if n < min_px:
+        return None, None, None, n
+    blur = lambda x: cv2.GaussianBlur(x, (5, 5), 0)
+    f, t, c = _ab(blur(frame))[wm], _ab(blur(wt))[wm], _ab(blur(wc))[wm]
+    d_t = float(np.linalg.norm(f - t, axis=1).mean())
+    d_c = float(np.linalg.norm(f - c, axis=1).mean())
+    margin = (d_c - d_t) / max(d_c + d_t, 1e-6)
+    return margin, d_t, d_c, n
 
 
 # ---------------------------------------------------------------- backend
@@ -412,7 +446,8 @@ class PerceptionBackend:
                  min_score: float = 0.0, extractor=None, query_mode: str = "tiled"):
         self.extractor = extractor or AlikedExtractor(aliked, min_score=min_score)
         self.backend, self.ratio, self.min_inliers = backend, ratio, min_inliers
-        self.ncc_margin = 0.10   # look-alike decision margin; tune on validation views
+        self.colour_margin = 0.35   # look-alike decision margin; tune on validation views
+        self.min_area_px = 4000     # smaller projected targets are too small to judge identity
         if query_mode not in ("tiled", "letterbox"):
             raise ValueError("query_mode must be tiled or letterbox")
         if query_mode == "tiled" and backend == "lightglue":
@@ -471,6 +506,19 @@ class PerceptionBackend:
             self._cache[key] = H
         return self._cache[key]
 
+    def add_reference(self, name: str, face: str, img: np.ndarray) -> None:
+        """Register (or replace) one reference face at runtime and drop stale caches."""
+        self.refs.setdefault(name, {})[face] = img
+        self._purge(name)
+
+    def remove_reference(self, name: str) -> None:
+        self.refs.pop(name, None)
+        self._purge(name)
+
+    def _purge(self, name: str) -> None:
+        for k in [k for k in self._cache if name in k]:
+            del self._cache[k]
+
     def warmup(self) -> float:
         """Pre-extract every reference face/size (tiled mode) so the first frame isn't slow."""
         t0 = time.perf_counter()
@@ -486,19 +534,73 @@ class PerceptionBackend:
             return match_bf_mutual(fr.desc, fq.desc, self.ratio)
         return self.lg.match(fr, fq)
 
-    def verify_reference(self, name: str, fq: Features, frame_wh, query_scale: float) -> dict:
-        best = None
+    def hypotheses(self, name: str, fq: Features, frame_wh, query_scale: float,
+                   max_instances: int = 3, frame_origin=(0, 0)):
+        """All plausible instances of reference `name` in the frame.
+
+        Sequential RANSAC: after an instance passes the geometry gate, the
+        query keypoints inside its support box are removed and the search
+        repeats, so a reference can match several boxes (e.g. a look-alike
+        AND the real target).  Returns (tentative_instances, best_report).
+        """
+        found, best = [], None
         for face, ref in self.refs[name].items():
             rh, rw = ref.shape[:2]
             for size in self.ref_sizes:
                 fr = self._ref_features(name, size, query_scale, face)
                 pairs = self._match(fr, fq)
-                rep = evaluate_v07(fr.pts, fq.pts, pairs, frame_wh, (rw, rh), self.min_inliers)
-                rep.update(ref_size_px=size, ref_face=face, n_ref_keypoints=int(len(fr.pts)))
-                key = (rep["status"] == "tentative", rep.get("ranking_score", 0.0), rep["n_inliers"])
-                if best is None or key > best[0]:
-                    best = (key, rep)
-        return best[1]
+                for _ in range(max_instances):
+                    rep = evaluate_v07(fr.pts, fq.pts, pairs, frame_wh, (rw, rh), self.min_inliers,
+                                       frame_origin=frame_origin)
+                    rep.update(ref_size_px=size, ref_face=face, n_ref_keypoints=int(len(fr.pts)))
+                    key = (rep["status"] == "tentative", rep.get("ranking_score", 0.0), rep["n_inliers"])
+                    if best is None or key > best[0]:
+                        best = (key, rep)
+                    if rep["status"] != "tentative":
+                        break
+                    found.append(rep)
+                    x0, y0, x1, y1 = rep["support_bbox_xyxy"]
+                    q = fq.pts[[j for _, j in pairs]] if pairs else np.zeros((0, 2))
+                    inside = ((q[:, 0] >= x0 - 10) & (q[:, 0] <= x1 + 10) &
+                              (q[:, 1] >= y0 - 10) & (q[:, 1] <= y1 + 10))
+                    pairs = [pr for pr, ins in zip(pairs, inside) if not ins]
+        found.sort(key=lambda r: r["ranking_score"], reverse=True)
+        unique = []
+        for r in found:      # NMS across faces/sizes
+            if not any(_overlaps(r["support_bbox_xyxy"], u["support_bbox_xyxy"]) for u in unique):
+                unique.append(r)
+        return unique, best[1]
+
+    def verify_reference(self, name: str, fq: Features, frame_wh, query_scale: float) -> dict:
+        """Best single instance (kept for tools that expect one report)."""
+        inst, best = self.hypotheses(name, fq, frame_wh, query_scale)
+        return inst[0] if inst else best
+
+    def _resolve(self, bgr, target, t, n, r, roi_mask):
+        """Look-alike check of target instance t against competitor instance r."""
+        info = {"ranking_score": r["ranking_score"], "n_inliers": r["n_inliers"],
+                "competitor_bbox": r["support_bbox_xyxy"]}
+        face = t["ref_face"] if t["ref_face"] in self.refs[n] else r["ref_face"]
+        H_ct = self._ref_alignment(n, face, target, t["ref_face"])
+        m1, _, _, n1 = discriminate(bgr, self.refs[target][t["ref_face"]],
+                                    self.refs[n][face], t["H"], H_ct, roi_mask)
+        H_tc = self._ref_alignment(target, t["ref_face"], n, r["ref_face"])
+        m2, _, _, n2 = discriminate(bgr, self.refs[n][r["ref_face"]],
+                                    self.refs[target][t["ref_face"]], r["H"], H_tc, roi_mask)
+        m2 = None if m2 is None else -m2      # flip: positive = target
+        info.update(margin_targetH=None if m1 is None else round(m1, 3), px_targetH=n1,
+                    margin_competitorH=None if m2 is None else round(m2, 3), px_competitorH=n2)
+        ms = [m for m in (m1, m2) if m is not None]
+        margin = float(np.mean(ms)) if ms else None
+        info["colour_margin"] = None if margin is None else round(margin, 3)
+        # Conservative: every measurable direction must agree and clear the margin.
+        if not ms or any(abs(m) < self.colour_margin for m in ms) or (len(ms) == 2 and ms[0] * ms[1] < 0):
+            info["resolution"] = "unresolved"
+        elif margin < 0:
+            info["resolution"] = "region_is_competitor"
+        else:
+            info["resolution"] = "target_wins"
+        return info
 
     def query_features(self, bgr: np.ndarray, roi_polygon: np.ndarray | None = None):
         """Query features in native pixels; optionally restricted to an ROI polygon.
@@ -535,7 +637,12 @@ class PerceptionBackend:
                         f.model_pts[keep], f.n_raw), qscale
 
     def perceive(self, bgr: np.ndarray, target: str, camera_pose: dict | None = None,
-                 roi_polygon: np.ndarray | None = None) -> PerceptionResult:
+                 roi_polygon: np.ndarray | None = None, origin=(0, 0),
+                 frame_wh=None) -> PerceptionResult:
+        """origin/frame_wh: `bgr` may be a crop of a larger camera frame (the remote
+        client uploads only the workspace region).  `roi_polygon` is then in crop
+        coordinates; all returned image coordinates are in FULL-frame pixels and
+        frame-edge checks use the full frame, so results equal a full-frame call."""
         iid = image_id(bgr)
         if target not in self.refs:
             return PerceptionResult(target, "error", iid, self.method, camera_pose,
@@ -547,71 +654,73 @@ class PerceptionBackend:
             fq, qscale = self.query_features(bgr, roi_polygon)
             lat["extract_query"] = round(1000 * (time.perf_counter() - t0), 1)
             t1 = time.perf_counter()
-            reports = {n: self.verify_reference(n, fq, (w, h), qscale) for n in self.refs}
+            ox, oy = int(origin[0]), int(origin[1])
+            FW, FH = frame_wh or (w, h)
+            hyps = {n: self.hypotheses(n, fq, (FW, FH), qscale, frame_origin=(ox, oy)) for n in self.refs}
             lat["match_and_geometry"] = round(1000 * (time.perf_counter() - t1), 1)
             lat["total"] = round(1000 * (time.perf_counter() - t0), 1)
         except Exception as exc:  # includes isolated LightGlue crash
             return PerceptionResult(target, "error", iid, self.method, camera_pose,
                                     latency_ms=lat, error=f"{type(exc).__name__}: {exc}")
-        t = reports[target]
-        status: Status = "not_found"
-        competitors = {}
         roi_mask = None
         if roi_polygon is not None:
             roi_mask = np.zeros((h, w), np.uint8)
             cv2.fillPoly(roi_mask, [np.round(roi_polygon).astype(np.int32)], 255)
-        if t["status"] == "tentative":
-            status = "candidate"
-            for n, r in reports.items():
-                if n == target or r["status"] != "tentative":
+        # Judge every target instance against overlapping instances of other references.
+        judged = []   # (verdict, instance, competitors)
+        for t_i in hyps[target][0]:
+            comps, verdict = {}, "candidate"
+            for n, (insts, _) in hyps.items():
+                if n == target:
                     continue
-                if _iou(t["support_bbox_xyxy"], r["support_bbox_xyxy"]) <= 0.3:
-                    continue  # a different object elsewhere in the frame
-                info = {"ranking_score": r["ranking_score"], "n_inliers": r["n_inliers"]}
-                if r["ranking_score"] >= 0.8 * t["ranking_score"]:
-                    # Same image region explained by two references: check
-                    # appearance where the two references actually differ.
-                    face = t["ref_face"] if t["ref_face"] in self.refs[n] else r["ref_face"]
-                    # Direction 1: warp both refs with the TARGET's homography.
-                    H_ct = self._ref_alignment(n, face, target, t["ref_face"])
-                    nt, nc, npx = discriminate(bgr, self.refs[target][t["ref_face"]],
-                                               self.refs[n][face], t["H"], H_ct, roi_mask)
-                    # Direction 2: warp both refs with the COMPETITOR's homography,
-                    # so the decision does not depend on which object was asked for.
-                    H_tc = self._ref_alignment(target, t["ref_face"], n, r["ref_face"])
-                    nc2, nt2, npx2 = discriminate(bgr, self.refs[n][r["ref_face"]],
-                                                  self.refs[target][t["ref_face"]], r["H"], H_tc, roi_mask)
-                    info.update(ncc_target=None if nt is None else round(nt, 3),
-                                ncc_competitor=None if nc is None else round(nc, 3),
-                                discriminative_px=npx,
-                                ncc_target_compH=None if nt2 is None else round(nt2, 3),
-                                ncc_competitor_compH=None if nc2 is None else round(nc2, 3),
-                                discriminative_px_compH=npx2)
-                    ms = [(nt - nc, npx) for nt, nc, npx in ((nt, nc, npx), (nt2, nc2, npx2))
-                          if nt is not None and nc is not None]
-                    margin = (sum(m * w for m, w in ms) / sum(w for _, w in ms)) if ms else None
-                    info["ncc_margin"] = None if margin is None else round(margin, 3)
-                    if margin is None or abs(margin) < self.ncc_margin:
-                        status = "ambiguous"
-                        info["resolution"] = "unresolved"
-                    elif margin < 0:
-                        status = "not_found"          # region is the look-alike
-                        info["resolution"] = "region_is_competitor"
-                    else:
-                        info["resolution"] = "target_wins"
-                competitors[n] = info
-        bb = t.get("support_bbox_xyxy")
-        border = bool(bb and (bb[0] <= 6 or bb[1] <= 6 or bb[2] >= w - 7 or bb[3] >= h - 7))
-        summary = {n: {k: r.get(k) for k in ("status", "n_matches", "n_inliers", "inlier_ratio",
-                                               "ranking_score", "ref_size_px", "ref_face", "support_bbox_xyxy")}
-                   for n, r in reports.items()}
+                for r in insts:
+                    if not _overlaps(t_i["support_bbox_xyxy"], r["support_bbox_xyxy"]):
+                        continue
+                    info = self._resolve(bgr, target, t_i, n, r, roi_mask)
+                    comps[n] = info
+                    if info["resolution"] == "region_is_competitor":
+                        verdict = "not_found"
+                    elif info["resolution"] == "unresolved" and verdict == "candidate":
+                        verdict = "ambiguous"
+            judged.append((verdict, t_i, comps))
+        rejected = [{"bbox": t_i["support_bbox_xyxy"], "n_inliers": t_i["n_inliers"],
+                     "is_actually": [n for n, c in comps.items() if c["resolution"] == "region_is_competitor"]}
+                    for v, t_i, comps in judged if v == "not_found"]
+        pick = next((j for j in judged if j[0] == "candidate"), None) or \
+            next((j for j in judged if j[0] == "ambiguous"), None)
+        notes = []
+        if pick:
+            status, t, competitors = pick
+            if status == "candidate" and t.get("projected_area_px", 0) < self.min_area_px:
+                status = "ambiguous"
+                notes.append(f"target too small to judge identity ({t.get('projected_area_px', 0):.0f} px^2 "
+                             f"< {self.min_area_px}); view it closer")
+        else:
+            status, t, competitors = "not_found", hyps[target][1], {}
+        def sh(b):          # crop -> full-frame coordinates
+            return None if b is None else [b[0] + ox, b[1] + oy, b[2] + ox, b[3] + oy]
+        bb = sh(t.get("support_bbox_xyxy"))
+        border = bool(bb and (bb[0] <= 6 or bb[1] <= 6 or bb[2] >= FW - 7 or bb[3] >= FH - 7))
+        poly = t.get("projected_polygon_global")
+        if poly is not None and (ox or oy):
+            poly = [[x + ox, y + oy] for x, y in poly]
+        if ox or oy:
+            rejected = [{**r, "bbox": sh(r["bbox"])} for r in rejected]
+            competitors = {n: {**c, "competitor_bbox": sh(c.get("competitor_bbox"))} for n, c in competitors.items()}
+        summary = {n: {**{k: (insts[0] if insts else best).get(k)
+                          for k in ("status", "n_matches", "n_inliers", "inlier_ratio",
+                                    "ranking_score", "ref_size_px", "ref_face")},
+                       "support_bbox_xyxy": sh((insts[0] if insts else best).get("support_bbox_xyxy")),
+                       "n_instances": len(insts)}
+                   for n, (insts, best) in hyps.items()}
         return PerceptionResult(
             target=target, status=status, image_id=iid, method=self.method,
             camera_pose=camera_pose, n_matches=t["n_matches"], n_inliers=t["n_inliers"],
             inlier_ratio=t["inlier_ratio"], median_reprojection_px=t.get("median_reprojection_px"),
-            support_bbox_xyxy=bb, projected_polygon=t.get("projected_polygon_global"),
+            support_bbox_xyxy=bb, projected_polygon=poly,
             touches_border=border, best_ref_size_px=t.get("ref_size_px"), best_ref_face=t.get("ref_face"),
-            competitors=competitors, per_reference=summary, latency_ms=lat,
+            competitors=competitors, rejected_instances=rejected, notes=notes,
+            per_reference=summary, latency_ms=lat,
             n_query_keypoints=int(len(fq.pts)))
 
     def close(self):
@@ -634,6 +743,13 @@ def draw(bgr, res: PerceptionResult, fq: Features | None = None, roi=None):
     if res.support_bbox_xyxy and res.status != "not_found":
         x0, y0, x1, y1 = res.support_bbox_xyxy
         cv2.rectangle(vis, (x0, y0), (x1, y1), col, 2)
+    # Matches of the target reference that turned out to be a look-alike.
+    for rej in res.rejected_instances or []:
+        x0, y0, x1, y1 = rej["bbox"]
+        cv2.rectangle(vis, (x0, y0), (x1, y1), (0, 140, 255), 2)
+        lab = "look-alike: " + ", ".join(rej["is_actually"])
+        cv2.putText(vis, lab, (x0, max(18, y0 - 8)), cv2.FONT_HERSHEY_SIMPLEX, .55, (0, 0, 0), 4, cv2.LINE_AA)
+        cv2.putText(vis, lab, (x0, max(18, y0 - 8)), cv2.FONT_HERSHEY_SIMPLEX, .55, (0, 140, 255), 2, cv2.LINE_AA)
     txt = f"{res.target}: {res.status.upper()} inl={res.n_inliers}/{res.n_matches}"
     if res.touches_border:
         txt += " [BORDER]"

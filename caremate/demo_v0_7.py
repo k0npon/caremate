@@ -37,8 +37,7 @@ from caremate.nbv_v0_7 import STATIONS
 from caremate.perception_v0_7 import PerceptionBackend, draw
 
 # TIAGo++ arms tucked beside the torso (display only; not in the head camera view).
-TUCK_LEFT = (-1.10, 1.47, 2.71, 1.71, -1.57, 1.37, 0.0)
-TUCK_RIGHT = (-1.10, 1.47, -2.71, 1.71, 1.57, 1.37, 0.0)
+from caremate.fetch_v0_7 import TUCK_LEFT, TUCK_RIGHT   # home poses (single source: fetch_v0_7)
 FPS = 30
 WINDOW = "CareMate head camera (live) + OpenCV 5 perception"
 
@@ -123,10 +122,60 @@ class DemoCamera(MuJoCoHeadCamera):
         return out
 
 
-class Recorder:
-    """Writes a 1280x720 video: third-person world view + head-camera inset."""
+DEFAULT_CAM = (2.6, 35.0, -28.0, 0.6)   # follow camera: distance, azimuth rel. to heading, elevation, look-ahead
+LOOK_HEIGHT = 0.85
 
-    def __init__(self, path: Path, model):
+
+class FollowCam:
+    """Third-person camera that follows the robot from behind-right and above, smoothed.
+
+    params = (distance m, azimuth relative to the robot heading deg (0 = straight behind, + = behind-right),
+              elevation deg (negative = looking down), look-ahead m in front of the base).
+    """
+
+    def __init__(self, model, params=DEFAULT_CAM, smooth=0.08):
+        self.dist, self.rel, self.elev, self.ahead = (float(v) for v in params)
+        self.smooth = smooth
+        jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "reference")
+        self.adr = int(model.jnt_qposadr[jid])
+        self.state = None
+
+    def target(self, data):
+        a = self.adr
+        x, y = data.qpos[a], data.qpos[a + 1]
+        w, qx, qy, qz = data.qpos[a + 3:a + 7]
+        yaw = math.atan2(2 * (w * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
+        look = np.array([x + self.ahead * math.cos(yaw), y + self.ahead * math.sin(yaw), LOOK_HEIGHT])
+        return look, math.degrees(yaw) + self.rel
+
+    def apply(self, data, cam, snap=False):
+        look, az = self.target(data)
+        if self.state is None or snap:
+            self.state = [look, az]
+        else:
+            k = self.smooth
+            self.state[0] = self.state[0] + k * (look - self.state[0])
+            self.state[1] = self.state[1] + k * (((az - self.state[1] + 180) % 360) - 180)
+        cam.lookat[:] = self.state[0]
+        cam.distance, cam.azimuth, cam.elevation = self.dist, self.state[1], self.elev
+
+    @staticmethod
+    def params_from_viewer(vcam, data, model):
+        """Express a viewer camera relative to the robot, as --cam-params values."""
+        f = FollowCam(model, DEFAULT_CAM)
+        a = f.adr
+        x, y = data.qpos[a], data.qpos[a + 1]
+        w, qx, qy, qz = data.qpos[a + 3:a + 7]
+        yaw = math.atan2(2 * (w * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
+        ahead = (vcam.lookat[0] - x) * math.cos(yaw) + (vcam.lookat[1] - y) * math.sin(yaw)
+        rel = ((vcam.azimuth - math.degrees(yaw) + 180) % 360) - 180
+        return vcam.distance, rel, vcam.elevation, ahead
+
+
+class Recorder:
+    """Writes a 1280x720 video: third-person world view (fixed, or following the robot) + head-camera inset."""
+
+    def __init__(self, path: Path, model, cam_params=DEFAULT_CAM):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.w, self.h = 1280, 720
         self.writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), FPS, (self.w, self.h))
@@ -137,18 +186,33 @@ class Recorder:
         self.cam.type = mujoco.mjtCamera.mjCAMERA_FREE
         self.cam.lookat[:] = (0.85, -0.45, 0.65)
         self.cam.distance, self.cam.azimuth, self.cam.elevation = 3.6, 215.0, -32.0
-        self.inset = None
+        self.follow = FollowCam(model, cam_params) if cam_params is not None else None
+        self.inset = None          # last OpenCV 5 result image (set by the demo after each perception step)
+        self.inset_hold = 0        # frames left to show it; otherwise the inset is the LIVE head camera
+        self.iw, self.ih = 448, 336
+        self.live_r = mujoco.Renderer(model, self.ih, self.iw)
         self.path = path
 
     def write_world(self, data, caption=""):
+        if self.follow is not None:
+            self.follow.apply(data, self.cam)
         for _ in range(2):   # see MuJoCoHeadCamera.capture (first frame after a move lags)
             self.r.update_scene(data, camera=self.cam)
             rgb = self.r.render()
         frame = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-        if self.inset is not None:
-            ih, iw = self.inset.shape[:2]
-            frame[12:12 + ih, self.w - iw - 12:self.w - 12] = self.inset
-            cv2.rectangle(frame, (self.w - iw - 13, 11), (self.w - 12, 12 + ih), (255, 255, 255), 1)
+        if self.inset is not None and self.inset_hold > 0:
+            ins, tag, col = self.inset.copy(), "OpenCV 5 result", (0, 220, 255)
+            self.inset_hold -= 1
+        else:
+            for _ in range(2):
+                self.live_r.update_scene(data, camera="head_rgb")
+                live = self.live_r.render()
+            ins, tag, col = cv2.cvtColor(live, cv2.COLOR_RGB2BGR), "LIVE head camera", (80, 255, 80)
+        ih, iw = ins.shape[:2]
+        cv2.rectangle(ins, (0, 0), (len(tag) * 11 + 12, 24), (20, 20, 20), -1)
+        cv2.putText(ins, tag, (6, 17), cv2.FONT_HERSHEY_SIMPLEX, 0.5, col, 1, cv2.LINE_AA)
+        frame[12:12 + ih, 12:12 + iw] = ins              # top-left: the follow camera keeps the robot right
+        cv2.rectangle(frame, (11, 11), (12 + iw, 12 + ih), (255, 255, 255), 1)
         _caption(frame, caption)
         self.writer.write(frame)
         pump(1)     # keep the OpenCV window responsive while recording (GNOME "not responding")
@@ -160,6 +224,39 @@ class Recorder:
     def close(self):
         self.writer.release()
         self.r.close()
+        self.live_r.close()
+
+
+def cam_preview(scene, params, path):
+    """One image per key robot pose with the follow camera (no smoothing), as a grid."""
+    from caremate.fetch_v0_7 import MANIP_TORSO
+    cam = DemoCamera(scene)
+    model = cam.model
+    model.vis.global_.offwidth = max(int(model.vis.global_.offwidth), 640)
+    model.vis.global_.offheight = max(int(model.vis.global_.offheight), 360)
+    r = mujoco.Renderer(model, 360, 640)
+    fc = FollowCam(model, params)
+    vc = mujoco.MjvCamera()
+    vc.type = mujoco.mjtCamera.mjCAMERA_FREE
+    poses = [(f"station {n}", *STATIONS[n], 0.0) for n in STATIONS]
+    poses += [("grasp pose (typical)", 0.753, -1.418, 0.935, MANIP_TORSO),
+              ("delivery pose (typical)", 1.276, 0.594, -0.112, MANIP_TORSO)]
+    tiles = []
+    for label, x, y, yaw, torso in poses:
+        cam.set_robot(x, y, yaw, torso, 0.0, -0.4)
+        fc.apply(cam.data, vc, snap=True)
+        for _ in range(2):
+            r.update_scene(cam.data, camera=vc)
+            img = cv2.cvtColor(r.render(), cv2.COLOR_RGB2BGR)
+        _caption(img, label)
+        tiles.append(img)
+    tiles.append(np.zeros_like(tiles[0]))
+    grid = np.vstack([np.hstack(tiles[i:i + 3]) for i in (0, 3)])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(path), grid)
+    r.close()
+    cam.close()
+    print(f"saved {path}  (params {','.join(str(v) for v in params)})")
 
 
 def _caption(img, text, y=None):
@@ -185,7 +282,17 @@ def main():
     p.add_argument("--backend-url", default=None, help="use the AWS perception service")
     p.add_argument("--no-fetch", action="store_true",
                    help="skip the kinematic fetch-and-deliver phase (fetch_v0_7)")
+    p.add_argument("--cam-params", default=",".join(str(v) for v in DEFAULT_CAM), metavar="D,AZ,EL,AHEAD",
+                   help="video follow camera: distance m, azimuth rel. to heading deg (0 = behind, + = behind-right), "
+                        "elevation deg, look-ahead m")
+    p.add_argument("--fixed-cam", action="store_true", help="video: old fixed camera instead of following")
+    p.add_argument("--cam-preview", action="store_true",
+                   help="only render the follow camera at key poses to outputs/cam_preview.png and exit")
     a = p.parse_args()
+    cam_params = tuple(float(v) for v in a.cam_params.split(","))
+    if a.cam_preview:
+        cam_preview(a.scene, cam_params, ROOT / "outputs/cam_preview.png")
+        return
 
     backend = make_backend(a)
     print(f"{backend.method}; warm-up {backend.warmup():.1f}s")
@@ -209,7 +316,7 @@ def main():
         apply_layout(cam.model, cam.data, layout)
         print(f"Episode {a.episode} of seed {a.seed}: target={target} present={present} mode={mode}")
     cam._set(START)
-    rec = Recorder(a.record, cam.model) if a.record else None
+    rec = Recorder(a.record, cam.model, None if a.fixed_cam else cam_params) if a.record else None
     cam.recorder = rec
     if not a.no_viewer:
         viewer = mujoco.viewer.launch_passive(cam.model, cam.data)
@@ -240,7 +347,8 @@ def main():
                 viewer.sync()
                 pump(30)
         if rec:
-            rec.inset = cv2.resize(vis, (448, 336))
+            rec.inset = cv2.resize(vis, (rec.iw, rec.ih))
+            rec.inset_hold = int(2.5 * FPS)
             rec.hold(cam.data, f"step {step}: {res.status} ({res.n_inliers} inliers) -> {decision}: {reason}", 2.5)
         print(f"  why this view: {why_view}")
 
@@ -261,11 +369,17 @@ def main():
         if rec:
             rec.hold(cam.data, summary, 3.0)
         if viewer is not None:
-            print("Close the MuJoCo viewer window to exit.")
+            print("Close the MuJoCo viewer window to exit.  (Tip: frame the robot as you like the video camera "
+                  "before closing - the matching --cam-params are printed.)")
             while viewer.is_running():
                 viewer.sync()
                 if pump(30) == 27:      # Esc in the camera window also exits
                     break
+            try:
+                d_, r_, e_, a_ = FollowCam.params_from_viewer(viewer.cam, cam.data, cam.model)
+                print(f"viewer camera relative to the robot:  --cam-params={d_:.2f},{r_:.0f},{e_:.0f},{a_:.2f}")
+            except Exception as ex:      # viewer already torn down
+                print(f"(could not read the viewer camera: {ex})")
     finally:
         if rec:
             rec.close()

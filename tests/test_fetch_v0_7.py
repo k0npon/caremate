@@ -170,8 +170,12 @@ def _ensure_target_base_estimate():
         sys.modules["caremate.agent_loop_v0_7"] = mod
 
 
+STANDIN_TUCK = (-1.10, 1.47, -2.71, 1.71, 1.57, 1.37, 0.0)   # tuck for the stand-in arm (TIAGo's is mirrored)
+
+
 @pytest.fixture
-def cam():
+def cam(monkeypatch):
+    monkeypatch.setattr(F, "TUCK_RIGHT", STANDIN_TUCK)
     _ensure_target_base_estimate()
     c = FakeCam()
     c.last_depth, _ = ray_depth(c)
@@ -231,6 +235,7 @@ def test_full_fetch_and_deliver(cam):
     assert gt["object_delivered"] == "crunch_peanut" and gt["is_requested_target"]
     assert gt["dist_to_delivery_goal_m"] < 0.05 and abs(gt["object_gap_to_table_m"]) < 0.008, gt
     chk = log["execution_check"]
+    assert log["joint_limits_check"]["violations"] == [], log["joint_limits_check"]
     assert chk["frames_in_collision"] == 0 and chk["min_robot_furniture_m"] > 0 and chk["min_self_margin_m"] >= 0, chk
     grasp = next(ph for ph in log["phases"] if ph["phase"] == "grasped")
     assert grasp["closing_axis_vs_face_normal"] > 0.9, grasp     # fingers on front + back face
@@ -313,3 +318,48 @@ def test_telescopic_column_only_exposed_segment(cam):
         F.put(kin, d, replace(st, torso=torso))
         assert mujoco.mj_geomDistance(cam.model, d, shell, col, 0.3, None) < -0.05
         assert kin.self_distance(d, shell, col, 0.3) > -0.004
+
+
+def test_precomputed_unfold_roundtrip(cam, tmp_path, monkeypatch):
+    """--precompute-unfold writes a path that run-time loading accepts and re-validates."""
+    monkeypatch.setattr(F, "UNFOLD_FILE", tmp_path / "unfold.json")
+    data = F.precompute_unfold(cam, collect=1, rrt_cap=2, tries=2, budget=5)
+    assert data is not None and F.UNFOLD_FILE.is_file()
+    kin = F.prepare_kin(cam)
+    st = replace(F.read_state(kin, cam.data), torso=F.MANIP_TORSO, fl=None)
+    q_ready, path, why = F.load_unfold(cam, kin, st)
+    assert q_ready is not None, why
+    assert np.allclose(path[-1], q_ready)
+    assert all(np.max(np.abs(b - a)) <= F.MAX_JOINT_STEP + 1e-9 for a, b in zip(path, path[1:]))
+    monkeypatch.setattr(F, "TUCK_RIGHT", tuple(np.asarray(F.TUCK_RIGHT) + 0.1))   # other tuck: rejected
+    assert F.load_unfold(cam, kin, st)[0] is None
+
+
+def test_teach_session_records_and_saves(cam, tmp_path, monkeypatch):
+    """Scripted teach session on the stand-in: limits enforced, colliding keyframes refused, save works."""
+    monkeypatch.setattr(F, "UNFOLD_FILE", tmp_path / "unfold.json")
+    out = []
+    q0 = list(F.TUCK_RIGHT)
+    cmds = ["4 += 99",               # clipped to the joint range
+            "back", "key",           # tuck itself as keyframe: zero-length move, allowed
+            "1 += 0.4", "key", "done"]
+    data = F.teach_session(cam, cmds, out=out.append)
+    text = "\n".join(out)
+    assert "limited to its range" in text
+    assert data is not None and F.UNFOLD_FILE.is_file(), text
+    kin = F.prepare_kin(cam)
+    st = replace(F.read_state(kin, cam.data), torso=F.MANIP_TORSO, fl=None)
+    q_ready, path, why = F.load_unfold(cam, kin, st)          # saved path passes the run-time checks
+    assert q_ready is not None, why
+    assert abs(data["keyframes"][-1][0] - (q0[0] + 0.4)) < 1e-9 or data["keyframes"][-1][0] == kin.hi[0]
+
+
+def test_check_tuck_limits_and_collisions(cam):
+    """Collision / limit part of --check-tuck (head-camera visibility needs OpenGL, checked on the OMEN)."""
+    out = []
+    assert F.check_tuck(cam, STANDIN_TUCK, out=out.append, render=False), out
+    out = []
+    bad = list(STANDIN_TUCK)
+    bad[3] = 5.0                                                   # outside joint 4's range
+    assert not F.check_tuck(cam, bad, out=out.append, render=False)
+    assert "outside" in out[0]

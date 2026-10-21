@@ -56,13 +56,27 @@ TABLE_Z = WORKSPACES["main_table"]["z"][0]
 ARM = tuple(f"arm_right_{i}_joint" for i in range(1, 8))
 FINGERS = ("gripper_right_right_finger_joint", "gripper_right_left_finger_joint")
 FINGER_BODIES = ("gripper_right_right_finger_link", "gripper_right_left_finger_link")
-TUCK_RIGHT = (-1.10, 1.47, -2.71, 1.71, 1.57, 1.37, 0.0)   # same as demo_v0_7
+# Right-arm home (tuck) pose, chosen by hand (2026-10-21) because the mirrored-left tuck
+# (-1.0853, 1.4705, -3.533, 1.709, -1.5701, 1.3716, 0) sits on joint 1/3 limits and could only be unfolded
+# by swinging the arm ~30-70 cm behind the robot.  --check-tuck: inside joint limits (2 and 3 at 1.569,
+# model limit 1.5708; joint 3 = 90 deg is above the 45 deg of the newer dual-arm URDF), self clearance
+# 2.1 cm, furniture 27 cm, in the head image in 47/54 search views but inside the perception ROI in only
+# 4/54 views at <= 0.01 % of the ROI (a few pixels on the ROI margin).
+TUCK_RIGHT = (0.0, 1.569, 1.569, 1.71, -1.57, 1.37, 0.0)
+# Left arm: mirror image of TUCK_RIGHT, from  python scripts/mirror_tuck.py --to-left <TUCK_RIGHT>
+# (link positions matched to the mirrored right arm, max error 2.5 mm).
+TUCK_LEFT = (-0.0198, 1.5674, 1.5892, 1.7101, -1.5678, 1.3766, 0.0)
 FINGER_OPEN = 0.045
 MANIP_TORSO = 0.35
 DELIVERY_SITE = "delivery_goal"
 FALLBACK_DELIVERY = (2.0, 0.4, 0.77)
 FPS = 30
-FETCH_VERSION = "fetch_v0_7 r12 (2026-10-21 07:50)"
+ROI_OCCLUSION_MAX = 0.005   # arms may cover at most 0.5 % of the perception ROI in a search view
+BEHIND_ALLOWANCE = None   # m the elbow / wrist / fingers may move further back than in the tuck pose.
+# None = no such constraint (default): on the real TIAGo model even 12 cm left RRT without a path from the
+# tuck pose; instead the offline precompute keeps the SHORTEST of several paths, which removes big swings.
+ARM3_UPPER = None   # set by --strict-limits (45 deg, PAL dual-arm URDF) - the model allows 90 deg
+FETCH_VERSION = "fetch_v0_7 r30 (2026-10-21 20:25)"
 
 # IK (uncalibrated, chosen for the demo)
 TOL_POS = 0.010
@@ -74,7 +88,6 @@ CLEAR_BASE = 0.04                 # robot / held box vs furniture while the base
 CLEAR_ARM = 0.015                 # arm vs furniture
 CLEAR_GRASP = 0.005               # hand vs table at the grasp / place pose
 CLEAR_SELF = 0.005                # arm vs rest of the robot
-DEFAULT_DISABLE = 0.02            # arm-link pairs deeper than this in the home pose: disabled (MoveIt "Default")
 CLEAR_DEPTH = 0.02                # arm / held box vs depth points of other objects
 # Grasp geometry
 ASSUMED_HALF_THICKNESS = 0.0325   # depth sees one face; assume <= 6.5 cm thick (book 5, cereal 5.6, Crunch 6.4)
@@ -264,6 +277,8 @@ class Kin:
         self.arm_adr = np.array([m.jnt_qposadr[j] for j in self.arm_j])
         rng = m.jnt_range[self.arm_j]
         self.lo, self.hi = rng[:, 0] + 1e-3, rng[:, 1] - 1e-3
+        if ARM3_UPPER is not None:       # --strict-limits: plan within the dual-arm URDF's arm_3 range
+            self.hi[2] = min(self.hi[2], ARM3_UPPER - 1e-3)
         self.finger_j = [_id(m, J, n) for n in FINGERS]
         self.finger_adr = np.array([m.jnt_qposadr[j] for j in self.finger_j])
         tj = _id(m, J, "torso_lift_joint")
@@ -318,6 +333,18 @@ class Kin:
         self.self_thr = np.full(len(self.selfA), CLEAR_SELF)
         self.self_overlapping_in_tuck = 0
         self.disabled_pairs = []
+        self.home_pose_overlaps = []
+        # Task constraint for arm planning: elbow, wrist and fingers never further behind (base frame x)
+        # than in the tuck pose minus BEHIND_ALLOWANCE (12 cm; 3 cm was too tight: unfolding TIAGo's
+        # tuck needs the wrist to move back a little).  Without it RRT swings the arm round the back.
+        self.base_body = base_body
+        self.track_bodies = [int(m.jnt_bodyid[j]) for j in self.arm_j[2:]] + list(self.finger_body)
+        self.front_min = None
+        names = list(ARM) + list(FINGERS) + ["torso_lift_joint", "head_1_joint", "head_2_joint"]
+        self.audit_names = names
+        self.audit_j = [_id(m, J, n) for n in names]
+        self.audit_adr = np.array([m.jnt_qposadr[j] for j in self.audit_j])
+        self.audit_lo, self.audit_hi = m.jnt_range[self.audit_j, 0], m.jnt_range[self.audit_j, 1]
         mesh_t = int(mujoco.mjtGeom.mjGEOM_MESH)
         self.planes = {int(g): hull_planes(m, g) for g in set(self.selfA.tolist())}
         self.samples = {int(g): surface_samples(m, g) for g in set(self.selfB.tolist())
@@ -399,20 +426,45 @@ class Kin:
             return concave_distance(d, int(a), self.planes[int(a)], b, self.samples[b], dmax)
         return geom_distance(self.m, d, a, b, dmax)
 
+    def set_front_limit(self, d):
+        """Record how far back the arm is in the tuck pose (d must hold the tuck pose)."""
+        self.front_min = None if BEHIND_ALLOWANCE is None else self._x_base(d) - BEHIND_ALLOWANCE
+
+    def _x_base(self, d):
+        R, p = d.xmat[self.base_body].reshape(3, 3), d.xpos[self.base_body]
+        return ((d.xpos[self.track_bodies] - p) @ R)[:, 0]
+
+    def backward_excursion(self, d, st, path):
+        """Largest distance (m) that elbow / wrist / fingers go further back (base-frame x) than in the
+        tuck pose, along a joint path.  0 = never behind where they start."""
+        put(self, d, replace(st, q=TUCK_RIGHT))
+        x0 = self._x_base(d)
+        worst = 0.0
+        for q in path:
+            put(self, d, replace(st, q=tuple(q)))
+            worst = max(worst, float(np.max(x0 - self._x_base(d))))
+        return worst
+
+    def behind(self, d):
+        if self.front_min is None:
+            return None
+        x = self._x_base(d)
+        i = int(np.argmin(x - self.front_min))
+        return None if x[i] >= self.front_min[i] else self.bname(self.track_bodies[i])
+
     def set_self_baseline(self, ds):
-        """Self-collision pairs and thresholds from the home (tuck) pose, as MoveIt's Setup Assistant does
-        for the SRDF: arm-link pairs already deeply in collision at home (> DEFAULT_DISABLE) are model
-        artefacts (coarse collision shapes, e.g. TIAGo's fixed column inside the torso shell) and are
-        disabled ("Default").  The hand and fingers are never disabled.  Remaining pairs that overlap a
-        little at home may get at most 5 mm worse; all others need CLEAR_SELF."""
+        """Self-collision thresholds from the home (tuck) pose.  Nothing is disabled: a home pose that is
+        itself in collision is a bug in the home pose (logged as home_pose_overlaps), not in the checker.
+        Pairs that overlap a little at home may get at most 5 mm worse; all others need CLEAR_SELF."""
         base = np.full(len(self.selfA), np.inf)
         for d in ds:
             for i, (a, b) in enumerate(zip(self.selfA, self.selfB)):
                 base[i] = min(base[i], self.self_distance(d, a, b, 0.3))
-        hand = np.isin(self.selfA, self.hand_col)
-        disable = (base < -DEFAULT_DISABLE) & ~hand
-        self.disabled_pairs = [f"{self.gname(a)}|{self.gname(b)} ({d:+.3f})"
-                               for a, b, d in zip(self.selfA[disable], self.selfB[disable], base[disable])]
+        disable = np.zeros(len(base), bool)     # nothing disabled: the old right tuck was REALLY in the column
+        deep = base < -0.01
+        self.disabled_pairs = []
+        self.home_pose_overlaps = [f"{self.gname(a)}|{self.gname(b)} ({d:+.3f})"
+                                   for a, b, d in zip(self.selfA[deep], self.selfB[deep], base[deep])]
         keep = ~disable
         self.selfA, self.selfB, base = self.selfA[keep], self.selfB[keep], base[keep]
         self.self_thr = np.minimum(CLEAR_SELF, base - 0.005)
@@ -486,6 +538,9 @@ class Kin:
             marg, p, dist = self.self_margin(d)
             if marg < 0:
                 out.append(f"self {self.gname(p[0])}|{self.gname(p[1])} {dist:+.3f}")
+            b = self.behind(d)
+            if b is not None:
+                out.append(f"behind-the-robot {b}")
         if depth and len(self.obstacles):
             g = self._pts_in_geoms(d, self.obstacles, self.arm_col, CLEAR_DEPTH)
             if g is not None:
@@ -947,7 +1002,7 @@ def _reach(kin, d, st, q0, p1, a1, via_up=0.08, attach=None, rng=None):
     return None if q is None else _lerp(q0, q, 16)
 
 
-def rrt_connect(ok, q_start, q_goal, lo, hi, rng, step=0.25, max_nodes=4000, time_budget=25.0):
+def rrt_connect(ok, q_start, q_goal, lo, hi, rng, step=0.25, max_nodes=4000, time_budget=25.0, shortcuts=200):
     """RRT-Connect in joint space (Kuffner & LaValle 2000).  ok(q) -> True if q is collision-free.
     Every edge is checked at <= MAX_JOINT_STEP resolution.  Returns a shortcut-smoothed list of
     configurations from q_start to q_goal (inclusive), or None."""
@@ -999,7 +1054,7 @@ def rrt_connect(ok, q_start, q_goal, lo, hi, rng, step=0.25, max_nodes=4000, tim
                 if swapped:
                     path = path[::-1]
                 # shortcut smoothing
-                for _ in range(80):
+                for _ in range(shortcuts):
                     if len(path) <= 2 or time.perf_counter() > t_end + 5:
                         break
                     i, j = sorted(rng.choice(len(path), 2, replace=False))
@@ -1011,10 +1066,32 @@ def rrt_connect(ok, q_start, q_goal, lo, hi, rng, step=0.25, max_nodes=4000, tim
     return None
 
 
-def find_ready(cam, kin: Kin, st: RobotState):
+def path_length(path):
+    """Joint-space length: sum over segments of the largest joint change (what the motion 'costs')."""
+    return float(sum(np.max(np.abs(np.asarray(b) - np.asarray(a))) for a, b in zip(path, path[1:])))
+
+
+def plan_joint_path(ok, q_start, q_goal, lo, hi, seed=0, tries=2, budget=8.0):
+    """Shortest of several RRT-Connect runs (a straight line is returned directly if it is free).
+    RRT only guarantees *a* collision-free path; picking the shortest of a few and shortcutting
+    removes most of the random detours."""
+    best = None
+    for k in range(tries):
+        p = rrt_connect(ok, q_start, q_goal, lo, hi, np.random.default_rng(seed * 10 + k), time_budget=budget)
+        if p is not None and (best is None or path_length(p) < path_length(best)):
+            best = p
+        if best is not None and len(best) == 2:          # straight line: cannot do better
+            break
+    return best
+
+
+def find_ready(cam, kin: Kin, st: RobotState, rrt_cap=4, tries=2, budget=8.0, collect=1, deadline=None,
+               verbose=False):
     """Ready / carry posture (TCP in front-right, approach forward, fingers closing horizontally) and a
-    self-collision-free unfolding path from tuck (joint groups moved in stages).
+    collision-free unfolding path from tuck.  With collect > 1, keeps searching and returns the
+    shortest of the first `collect` solutions (used offline by --precompute-unfold).
     Returns (q_ready, unfold_path, report)."""
+    found = []
     d = _plan_copy(cam)
     stm = replace(st, torso=MANIP_TORSO, q=TUCK_RIGHT, fl=None)        # fingers as they really are
     c, s = math.cos(st.yaw), math.sin(st.yaw)
@@ -1022,7 +1099,19 @@ def find_ready(cam, kin: Kin, st: RobotState):
     rng = np.random.default_rng(0)
     report = []
     rrt_tries = 0
+    t_start = time.perf_counter()
+
+    def say(msg):
+        if verbose:
+            print(f"  [{time.perf_counter() - t_start:5.0f} s] {msg}", flush=True)
+
     for bx, by, bz in READY_POINTS:
+        if deadline is not None and time.perf_counter() - t_start > deadline and found:
+            say(f"time limit reached with {len(found)} path(s); keeping the shortest")
+            break
+        if deadline is not None and time.perf_counter() - t_start > 2 * deadline:
+            say("time limit reached without a path")
+            break
         p = np.array([st.x + c * bx - s * by, st.y + s * bx + c * by, bz])
         sols = []
         for seed in [TUCK_RIGHT, (kin.lo + kin.hi) / 2, *rng.uniform(kin.lo, kin.hi, (6, 7))]:
@@ -1051,25 +1140,52 @@ def find_ready(cam, kin: Kin, st: RobotState):
                                  robot_static=False, target=False)
                 if not v:
                     report.append(((bx, by, bz), f"ok (unfold order {order})"))
-                    return q, path, report
+                    found.append((q, [np.asarray(TUCK_RIGHT, float)] + _densify(TUCK_RIGHT, path)))
+                    break
                 reason = reason or f"unfold: {v[0]}"
+            else:
+                v = True
+            if not v:
+                if len(found) >= collect:
+                    break
+                continue
             # No staged unfolding is collision-free: plan one (self-collision + furniture-free at this base).
-            if rrt_tries >= 4:
+            if rrt_tries >= rrt_cap:
                 continue
             rrt_tries += 1
+            say(f"ready {[bx, by, bz]}: RRT-Connect attempt {rrt_tries}/{rrt_cap} ({tries} runs x {budget:.0f} s max)")
             def ok(qq, _st=stm):
                 put(kin, d, replace(_st, q=tuple(qq)))
                 return not kin.violations(d, CLEAR_ARM, depth=False, target=False)
             t0 = time.perf_counter()
-            path = rrt_connect(ok, TUCK_RIGHT, q, kin.lo, kin.hi, np.random.default_rng(len(report)))
+            path = plan_joint_path(ok, TUCK_RIGHT, q, kin.lo, kin.hi, seed=len(report), tries=tries,
+                                   budget=budget)
             if path is not None:
-                dense = _densify(None, path)
                 report.append(((bx, by, bz), f"ok (RRT-Connect, {len(path)} waypoints, "
-                                             f"{time.perf_counter() - t0:.1f} s)"))
-                return q, dense[1:], report
+                                             f"{path_length(path):.2f} rad, {time.perf_counter() - t0:.1f} s)"))
+                found.append((q, _densify(None, path)))
+                say(f"  found: {len(path)} waypoints, {path_length(path):.2f} rad")
+                if len(found) >= collect:
+                    break
+                continue
             reason = f"{reason}; RRT-Connect found no path in {time.perf_counter() - t0:.0f} s"
+            say("  no path")
+        if len(found) >= collect:
+            break
         report.append(((bx, by, bz), reason))
-    return None, None, report
+    if not found:
+        return None, None, report
+    # Choose the path whose arm goes least behind the robot (what looks wrong), then the shortest.
+    stm_ = replace(st, torso=MANIP_TORSO, fl=None)
+    scored = []
+    for q, dense in found:
+        back = kin.backward_excursion(d, stm_, dense)
+        scored.append((round(back, 3), path_length(dense), q, dense))
+        say(f"candidate: arm goes {100 * back:.1f} cm behind its tuck position, {path_length(dense):.2f} rad")
+        report.append(("candidate", f"goes {100 * back:.1f} cm back, {path_length(dense):.2f} rad"))
+    back, length, q, dense = min(scored, key=lambda t: (t[0], t[1]))
+    report.append(("chosen", f"goes {100 * back:.1f} cm back, {length:.2f} rad"))
+    return q, [np.asarray(x) for x in dense[1:]], report
 
 
 def _base_candidates(st, gxy):
@@ -1087,7 +1203,9 @@ def _base_candidates(st, gxy):
 
 def plan_grasp(cam, kin, st, q_ready, unfold, centre, face, finger_back, finger_tip, stats,
                palm_front=-1.0, half_gap=0.04, s_pad=0.0):
-    """Yield grasp plans (nearest base first): ready -> pre -> main (side approach) -> lift -> ready."""
+    """Yield grasp plans (nearest base first): tuck -> ready (the precomputed / planned unfold path,
+    gripper closed) -> open gripper -> pre-grasp (hand on a straight line) -> main (side approach) ->
+    lift -> carry pose (= ready, with the held box checked)."""
     d = _plan_copy(cam)
     sides = None
     if face is not None:
@@ -1110,16 +1228,15 @@ def plan_grasp(cam, kin, st, q_ready, unfold, centre, face, finger_back, finger_
         if trials >= MAX_REACH_TRIALS:
             break
         trials += 1
-        # Self-collision of the unfolding path was checked in find_ready (base-independent); here only
-        # furniture / depth obstacles at this base pose.
-        v = (_arm_path_ok(kin, d, at_closed, unfold, start=TUCK_RIGHT, static_margin=CLEAR_ARM,
-                          self_check=False) or
-             _arm_path_ok(kin, d, replace(at_closed, f=FINGER_OPEN), [q_ready], static_margin=CLEAR_ARM))
+        # Unfolding at this base: self-collision was checked when the path was made (base-independent);
+        # here furniture and other objects seen in depth.
+        v = (_arm_path_ok(kin, d, at_closed, unfold, start=TUCK_RIGHT, static_margin=CLEAR_ARM, self_check=False)
+             or _arm_path_ok(kin, d, replace(at_closed, f=FINGER_OPEN), [q_ready], static_margin=CLEAR_ARM))
         if v:
             stats["ready_blocked"] += 1
             _note(stats, v)
             continue
-        at = replace(at_closed, f=FINGER_OPEN)        # gripper is opened at the ready pose
+        at = replace(at_closed, f=FINGER_OPEN)        # gripper opens at the pre-grasp pose
         if sides is not None:
             # Across the thickness: centred on the assumed box behind the MEASURED face (the back face is
             # not seen); the fingers then have >= SIDE_CLEAR on each side wherever gap(s) >= need.
@@ -1140,7 +1257,8 @@ def plan_grasp(cam, kin, st, q_ready, unfold, centre, face, finger_back, finger_
         if sides is not None:
             stats["pad_overlap_m"] = round(finger_tip - e, 3)
         p_pre = p_main - back_dist * a
-        to_pre = _reach(kin, d, at, q_ready, p_pre, a, rng=np.random.default_rng(trials))
+        # Ready -> pre-grasp: the hand moves on a straight line (via 3 cm above), heading turning smoothly.
+        to_pre = _reach(kin, d, at, q_ready, p_pre, a, via_up=0.03, rng=np.random.default_rng(trials))
         if to_pre is None:
             stats["ik_fail"] += 1
             continue
@@ -1158,15 +1276,30 @@ def plan_grasp(cam, kin, st, q_ready, unfold, centre, face, finger_back, finger_
         v = (_arm_path_ok(kin, d, at, approach, start=q_pre, static_margin=CLEAR_ARM, hand_static_margin=CLEAR_GRASP,
                           target=False) or
              _arm_path_ok(kin, d, at, lift, start=approach[-1], static_margin=CLEAR_ARM, hand_static_margin=CLEAR_GRASP,
-                          depth=False,
-                          target=False) or
-             _arm_path_ok(kin, d, at, [q_ready], start=lift[-1], static_margin=CLEAR_ARM, depth=False,
-                          target=False))
+                          depth=False, target=False))
+        if not v:
+            # From the lift on, the robot carries the box (modelled from depth, fixed to the wrist at the
+            # grasp pose): it must not sweep into furniture or other objects on the way to the carry pose.
+            put(kin, d, replace(at, q=tuple(approach[-1])))
+            held_plan = HeldBox(kin, d, centre, face["normal_xy"] if face else (1.0, 0.0),
+                                face["half_width"] if face else 0.04, max(0.02, centre[2] - TABLE_Z))
+            # Hand moves in a straight line to the carry pose's TCP (box stays above the table), then a
+            # short joint move onto q_ready itself (the fold path starts there).
+            put(kin, d, replace(at, q=tuple(q_ready)))
+            p_rdy, a_rdy, _ = kin.tool(d)
+            carry = _reach(kin, d, at, lift[-1], p_rdy, a_rdy, via_up=0.0, rng=np.random.default_rng(trials))
+            if carry is None:
+                stats["ik_fail"] += 1
+                continue
+            carry = list(carry) + [np.asarray(q_ready, float)]
+            v = _arm_path_ok(kin, d, at, carry, held=held_plan, start=lift[-1], static_margin=CLEAR_ARM,
+                             target=False)
         if v:
             stats["arm_blocked"] += 1
             _note(stats, v)
             continue
-        yield {"base": (bx, by, yaw), "approach": a, "q_pre": q_pre, "to_pre_qs": to_pre,
+        yield {"base": (bx, by, yaw), "approach": a, "q_pre": q_pre, "unfold_qs": unfold, "to_pre_qs": to_pre,
+               "carry_qs": carry,
                "approach_qs": approach, "lift_qs": lift, "back_dist": back_dist,
                "p_main": p_main, "base_travel_m": travel}
 
@@ -1402,14 +1535,39 @@ class Animator:
         self.placing = False
         self.lifted = False
         self.frames = 0
+        k = kin
+        self.lim_margin = np.full(len(k.audit_j), np.inf)       # min distance to either limit
+        self.max_speed = np.zeros(len(k.audit_j))              # displayed speed (video time)
+        self._prev_q = None
         self.check = {"min_robot_furniture_m": 1.0, "min_self_margin_m": 1.0, "min_held_furniture_m": 1.0,
-                      "min_robot_other_objects_m": 1.0, "frames_in_collision": 0, "worst": None}
+                      "min_robot_other_objects_m": 1.0, "frames_in_collision": 0,
+                      "frames_below_self_clearance": 0, "min_self_distance_at_worst_margin_m": None,
+                      "worst": None}
+
+    def _audit_joints(self):
+        k = self.kin
+        q = self.cam.data.qpos[k.audit_adr].copy()
+        self.lim_margin = np.minimum(self.lim_margin, np.minimum(q - k.audit_lo, k.audit_hi - q))
+        if self._prev_q is not None and not self.instant:
+            self.max_speed = np.maximum(self.max_speed, np.abs(q - self._prev_q) * FPS)
+        self._prev_q = q
+
+    def joint_report(self):
+        k = self.kin
+        rows = {}
+        for i, n in enumerate(k.audit_names):
+            rows[n] = {"range": [round(float(k.audit_lo[i]), 3), round(float(k.audit_hi[i]), 3)],
+                       "min_margin_to_limit": round(float(self.lim_margin[i]), 4)}
+            if not self.instant:
+                rows[n]["max_speed_per_s_video"] = round(float(self.max_speed[i]), 3)
+        bad = [n for n, r in rows.items() if r["min_margin_to_limit"] < -1e-6]
+        return {"violations": bad, "joints": rows}
 
     def _measure(self):
         """Ground-truth geometry check of the displayed frame (logging only, not used for decisions)."""
         k, d = self.kin, self.cam.data
         rf = k._sets_min(d, k.robot_col, k.static_obs, 0.2)
-        marg, sp, _ = k.self_margin(d)
+        marg, sp, sdist = k.self_margin(d)
         sf = (marg, sp)
         others = np.array([g for b, gs in k.obj_geoms.items() if not (self.attach and b == self.attach.body)
                            for g in gs], int)
@@ -1424,8 +1582,15 @@ class Animator:
                 c[key[:-2] + "_at"] = None if p is None else f"{k.gname(p[0])}|{k.gname(p[1])} ({self.cam.caption})"
                 if dist < 0 and (c["worst"] is None or dist < c["worst"][1]):
                     c["worst"] = (f"{key}: {k.gname(p[0])}|{k.gname(p[1])}", round(float(dist), 3))
-        if min(rf[0], hf[0]) < -0.002 or sf[0] < 0:
+        # Penetration (> 2 mm into furniture, held box into furniture, or self deeper than the home-pose
+        # baseline allows) vs merely closer than the 5 mm self-clearance target: logged separately.
+        self_pen = sp is not None and marg < 0 and sdist < -0.002
+        if min(rf[0], hf[0]) < -0.002 or self_pen:
             c["frames_in_collision"] += 1
+        if marg < 0:
+            c["frames_below_self_clearance"] += 1
+            if c["min_self_distance_at_worst_margin_m"] is None or marg <= c["min_self_margin_m"]:
+                c["min_self_distance_at_worst_margin_m"] = round(float(sdist), 4)
 
     def frame(self, caption):
         """Show one pose.  In instant mode (headless CLI) nothing is rendered, but the pose is still
@@ -1438,6 +1603,7 @@ class Animator:
             show(self.cam, self.kin, self.st, self.attach)
         self.cam.caption = caption
         self._measure()
+        self._audit_joints()
         fn = getattr(self.cam, "_frame", None)
         if fn is not None and not self.instant:
             fn()
@@ -1559,6 +1725,85 @@ def _make_keepalive(cam):
     return keep
 
 
+UNFOLD_FILE = Path(__file__).resolve().parent / "data" / "unfold_right_v0_7.json"
+
+
+def prepare_kin(cam):
+    """Kin with self-collision baseline and the behind-the-robot limit from the tuck pose."""
+    kin = Kin(cam.model)
+    st0 = read_state(kin, cam.data)
+    ds = []
+    for torso in (st0.torso, MANIP_TORSO):
+        dd = mujoco.MjData(cam.model)
+        dd.qpos[:] = cam.data.qpos
+        put(kin, dd, replace(st0, torso=torso, q=TUCK_RIGHT))
+        ds.append(dd)
+    kin.set_self_baseline(ds)
+    kin.set_front_limit(ds[1])
+    return kin
+
+
+def load_unfold(cam, kin, st):
+    """Precomputed tuck -> ready path (scripts: --precompute-unfold).  Used only if it was made for the
+    same tuck pose / torso height / joint-limit setting and is collision-free here and now."""
+    if not UNFOLD_FILE.is_file():
+        return None, None, f"no precomputed unfold ({UNFOLD_FILE.name}); planning online"
+    try:
+        u = json.loads(UNFOLD_FILE.read_text())
+        if (not np.allclose(u["tuck_right"], TUCK_RIGHT, atol=1e-4) or abs(u["torso"] - MANIP_TORSO) > 1e-6
+                or u.get("arm3_upper") != ARM3_UPPER or u.get("behind_allowance_m") != BEHIND_ALLOWANCE):
+            return None, None, "precomputed unfold is for another tuck / torso / limit / behind setting; planning online"
+        q_ready = np.asarray(u["q_ready"], float)
+        path = [np.asarray(q, float) for q in u["path"]]
+    except (OSError, KeyError, ValueError) as e:
+        return None, None, f"precomputed unfold unreadable ({e}); planning online"
+    if np.any(q_ready < kin.lo) or np.any(q_ready > kin.hi):
+        return None, None, "precomputed unfold outside joint limits; planning online"
+    d = _plan_copy(cam)
+    stm = replace(st, torso=MANIP_TORSO, q=TUCK_RIGHT, fl=None)
+    v = (_arm_path_ok(kin, d, stm, path, start=TUCK_RIGHT, static_margin=CLEAR_ARM, depth=False, target=False)
+         or _arm_path_ok(kin, d, replace(stm, f=FINGER_OPEN), [q_ready], static_margin=CLEAR_ARM, depth=False,
+                         target=False))
+    if v:
+        return None, None, f"precomputed unfold not collision-free here ({v[0]}); planning online"
+    return q_ready, path, f"precomputed ({UNFOLD_FILE.name}, {u.get('created', '?')})"
+
+
+def precompute_unfold(cam, collect=6, rrt_cap=8, tries=3, budget=15.0, deadline=360.0):
+    kin = prepare_kin(cam)
+    st = replace(read_state(kin, cam.data), torso=MANIP_TORSO, fl=None)
+    t0 = time.perf_counter()
+    print(f"precomputing unfold: up to {rrt_cap} RRT attempts, stops after {collect} paths or ~{deadline / 60:.0f} min",
+          flush=True)
+    q_ready, path, report = find_ready(cam, kin, st, rrt_cap=rrt_cap, tries=tries, budget=budget, collect=collect,
+                                       deadline=deadline, verbose=True)
+    for p_, why in report:
+        print(f"  {p_ if isinstance(p_, str) else 'ready ' + str(np.round(p_, 2).tolist())}: {why}")
+    if q_ready is None:
+        print("no unfold path found")
+        return None
+    sparse = [np.asarray(TUCK_RIGHT, float)] + list(path)
+    keep = [sparse[0]]                       # drop interpolated points, keep corners
+    for i in range(1, len(sparse) - 1):
+        d1, d2 = sparse[i] - keep[-1], sparse[i + 1] - sparse[i]
+        u1, u2 = d1 / max(np.linalg.norm(d1), 1e-12), d2 / max(np.linalg.norm(d2), 1e-12)
+        if np.linalg.norm(u1 - u2) > 1e-6:          # direction changes here: a real waypoint
+            keep.append(sparse[i])
+    keep.append(sparse[-1])
+    UNFOLD_FILE.parent.mkdir(parents=True, exist_ok=True)
+    data = {"version": FETCH_VERSION, "created": datetime.now().isoformat(timespec="seconds"),
+            "tuck_right": list(TUCK_RIGHT), "torso": MANIP_TORSO, "arm3_upper": ARM3_UPPER,
+            "behind_allowance_m": BEHIND_ALLOWANCE, "q_ready": [float(v) for v in q_ready],
+            "path": [[float(v) for v in q] for q in _densify(TUCK_RIGHT, keep[1:])],
+            "waypoints": len(keep), "joint_length_rad": round(path_length(keep), 3),
+            "backward_excursion_m": round(kin.backward_excursion(_plan_copy(cam), st, sparse), 3),
+            "seconds": round(time.perf_counter() - t0, 1)}
+    UNFOLD_FILE.write_text(json.dumps(data, indent=1))
+    print(f"saved {UNFOLD_FILE}: {len(keep)} waypoints, {data['joint_length_rad']} rad, "
+          f"arm goes {100 * data['backward_excursion_m']:.1f} cm behind its tuck position, {data['seconds']} s")
+    return data
+
+
 def run_fetch(cam, agent_result: dict, last_res, out: Path | None = None, target: str | None = None,
               animate: bool = True) -> dict:
     """Fetch-and-deliver after the agent loop.  Returns a JSON-safe log (also written into trace.json)."""
@@ -1571,24 +1816,16 @@ def run_fetch(cam, agent_result: dict, last_res, out: Path | None = None, target
            "kind": "kinematic scripted fetch: joint positions set directly, rigid attach on finger contact; "
                    "not physics grasping, not a grasp planner",
            "target_requested": target, "outcome": None, "phases": []}
-    kin = Kin(cam.model)
-    st0 = read_state(kin, cam.data)
-    ds = []
-    for torso in (st0.torso, MANIP_TORSO):
-        dd = mujoco.MjData(cam.model)
-        dd.qpos[:] = cam.data.qpos
-        put(kin, dd, replace(st0, torso=torso, q=TUCK_RIGHT))
-        ds.append(dd)
-    kin.set_self_baseline(ds)
+    kin = prepare_kin(cam)
     anim = Animator(cam, kin, instant=not animate)
     log["model"] = {"robot_collision_geoms": len(kin.robot_col), "furniture_geoms": len(kin.static_obs),
                     "self_pairs_checked": len(kin.selfA), "self_pairs_overlapping_in_tuck": kin.self_overlapping_in_tuck,
                     "body_meshes_checked_as_concave": kin.n_concave_body_geoms,
-                    "self_pairs_disabled_default": kin.disabled_pairs,
+                    "home_pose_overlaps_over_1cm": kin.home_pose_overlaps,
                     "telescopic_column_geoms": [kin.gname(g) for g in kin.column],
                     "mujoco_contact_filter_allows_robot_furniture": kin.contact_filter_robot_static}
 
-    unfold_box = [None]
+    unfold_box = [None, None]          # (unfold path, q_ready)
     f_box = [0.0]
 
     def phase(name, **kw):
@@ -1599,6 +1836,13 @@ def run_fetch(cam, agent_result: dict, last_res, out: Path | None = None, target
         log["outcome"] = outcome
         log["message"] = caption
         anim.hold(caption, secs)
+
+    def back_to_tuck(plan):
+        """Undo a grasp attempt the way it came: approach reversed, close the gripper, planned path back."""
+        anim.arm_path("fetch: backing off", plan["approach_qs"][::-1] + [plan["q_pre"]])
+        anim.arm_path("fetch: backing off", plan["to_pre_qs"][::-1] + [np.asarray(unfold_box[1])], 0.08)
+        anim.fingers_to("fetch: backing off", f_box[0])
+        anim.arm_path("fetch: backing off", plan["unfold_qs"][::-1] + [np.asarray(TUCK_RIGHT)], 0.05)
 
     def retreat_and_tuck(qs_back, q_ready, caption):
         if qs_back:
@@ -1640,9 +1884,14 @@ def run_fetch(cam, agent_result: dict, last_res, out: Path | None = None, target
         f_closed = anim.st.f                     # gripper state while tucked / unfolding
         f_box[0] = f_closed
         st = replace(anim.st, torso=MANIP_TORSO, fl=None)
-        q_ready, unfold, ready_report = find_ready(cam, kin, st)
-        unfold_box[0] = unfold
-        log["ready_search"] = _r([{"tcp_base_frame": p_, "result": why} for p_, why in ready_report][-6:])
+        q_ready, unfold, why = load_unfold(cam, kin, st)
+        log["unfold_source"] = why
+        if q_ready is None:
+            q_ready, unfold, ready_report = find_ready(cam, kin, st)
+            log["ready_search"] = _r([{"tcp_base_frame": p_, "result": w} for p_, w in ready_report][-6:])
+        phase("unfold", source=why if q_ready is not None else "online search failed",
+              joint_length_rad=path_length([np.asarray(TUCK_RIGHT)] + list(unfold)) if unfold else None)
+        unfold_box[0], unfold_box[1] = unfold, q_ready
         if q_ready is None:
             finish("NO_FETCH_NO_READY_POSE", "No collision-free arm posture found - hand-off to manipulation module.")
             return log
@@ -1689,23 +1938,21 @@ def run_fetch(cam, agent_result: dict, last_res, out: Path | None = None, target
         anim.tween("fetch: raising torso", 1.0, torso=MANIP_TORSO)
         anim.drive("fetch: driving to the grasp pose (kinematic base, roadmap route)", path)
         anim.look(centre, "fetch: looking at the target")
-        anim.arm_path("fetch: unfolding the arm", unfold, 0.05)
+        anim.arm_path("fetch: unfolding the arm (precomputed path)", plan["unfold_qs"], 0.05)
         anim.open_fingers("fetch: opening the gripper")
-        anim.arm_path("fetch: arm to pre-grasp (side approach)", plan["to_pre_qs"], 0.12)
+        anim.arm_path("fetch: hand to pre-grasp (straight line)", plan["to_pre_qs"], 0.08)
         anim.arm_path("fetch: approach", plan["approach_qs"])
         pre_touch = kin.finger_touch(cam.data, gap=-0.004)
         if pre_touch[0] or pre_touch[1]:
             phase("approach_collided", objects=[[kin.bname(b) for b in t] for t in pre_touch])
-            retreat_and_tuck(plan["approach_qs"][::-1] + [plan["q_pre"]] + plan["to_pre_qs"][::-1], q_ready,
-                             "fetch: backing off")
+            back_to_tuck(plan)
             finish("FETCH_FAILED_APPROACH_COLLIDED", "Gripper hit the object while approaching - asking staff.")
             return log
         body, touch = anim.close_until_contact("fetch: closing each finger until it touches")
         if body is None:
             phase("grasp_missed", touched=[[kin.bname(b) for b in t] for t in touch])
             anim.open_fingers("fetch: grasp missed - opening")
-            retreat_and_tuck(plan["approach_qs"][::-1] + [plan["q_pre"]] + plan["to_pre_qs"][::-1], q_ready,
-                             "fetch: backing off")
+            back_to_tuck(plan)
             finish("FETCH_FAILED_GRASP_MISSED", "Grasp missed (fingers closed on nothing) - asking staff.")
             return log
         _, _, c_axis = kin.tool(cam.data)
@@ -1718,7 +1965,7 @@ def run_fetch(cam, agent_result: dict, last_res, out: Path | None = None, target
               closing_axis_vs_face_normal=None if n_axis is None else abs(float(c_axis @ n_axis)))
         anim.arm_path("fetch: lift", plan["lift_qs"])
         anim.lifted = True
-        anim.arm("fetch: carry posture", q_ready)
+        anim.arm_path("fetch: carry posture", plan["carry_qs"], 0.08)
 
         # 4. Deliver.
         try:
@@ -1767,6 +2014,17 @@ def run_fetch(cam, agent_result: dict, last_res, out: Path | None = None, target
         phase("lowered", touched=touched_at is not None)
         anim.open_fingers("deliver: releasing", 0.8)
         anim.attach = None
+        # Released object settles under gravity (kinematic stand-in for the drop): lower it vertically
+        # until it rests on the furniture below.  Display only; no decision uses the object's pose.
+        adr = kin.objects[body]
+        gap, _ = kin._sets_min(cam.data, kin.obj_geoms[body], kin.static_obs, 0.05)
+        if 0.0005 < gap < 0.05:
+            z0 = float(cam.data.qpos[adr + 2])
+            n = 1 if anim.instant else max(2, int(0.25 * FPS / anim.speed))
+            for i in range(1, n + 1):
+                cam.data.qpos[adr + 2] = z0 - gap * (i / n) ** 2
+                anim.frame("deliver: object settles on the table")
+            phase("settled", drop_m=gap)
         retreat_and_tuck(plan2["back_qs"], q_ready, "deliver: retract and tuck")
         anim.placing = False
         phase("placed")
@@ -1783,6 +2041,7 @@ def run_fetch(cam, agent_result: dict, last_res, out: Path | None = None, target
         return log
     finally:
         log["execution_check"] = _r(anim.check)
+        log["joint_limits_check"] = anim.joint_report()
         log["frames"] = anim.frames
         log["seconds"] = round(time.perf_counter() - t0, 2)
         st = anim.st
@@ -1791,6 +2050,448 @@ def run_fetch(cam, agent_result: dict, last_res, out: Path | None = None, target
         _update_trace(out, log)
         _KEEPALIVE = None
         print(f"FETCH: {log['outcome']} ({log['seconds']} s); execution check {log['execution_check']}")
+        jl = log["joint_limits_check"]
+        print(f"JOINT LIMITS: violations={jl['violations']}; closest to a limit: " + ", ".join(
+            f"{n} {r['min_margin_to_limit']:+.3f}" for n, r in sorted(jl["joints"].items(),
+                                                              key=lambda kv: kv[1]["min_margin_to_limit"])[:4]))
+
+
+# ---------------------------------------------------------------- teach mode (human keyframes)
+TEACH_HELP = """commands (joints 1-7 = arm_right_1..7, values in radians):
+  <j> <value>     set joint j,  e.g.  2 0.8    or   3 -1.5
+  <j> += <d>      move joint j, e.g.  4 += 0.3  or   4 -= 0.3
+  show            print joints, hand position (base frame) and collision status
+  key             record the current pose as a keyframe (must be collision-free, and so must the
+                  straight joint move from the previous keyframe)
+  undo            drop the last keyframe and go back to the one before
+  back            return to the last keyframe
+  done            connect the last keyframe to a ready (carry) pose, check everything, save
+  quit            leave without saving"""
+
+
+def _tcp_base(kin, d):
+    p, a, _ = kin.tool(d)
+    R, o = d.xmat[kin.base_body].reshape(3, 3), d.xpos[kin.base_body]
+    return (p - o) @ R, a @ R
+
+
+def teach_session(cam, commands, out=print, display=None):
+    """Keyframe teaching: commands is an iterable of strings (stdin in the CLI, a list in tests).
+    display(q) is called after every change (viewer update).  Returns the saved dict or None."""
+    kin = prepare_kin(cam)
+    st = replace(read_state(kin, cam.data), torso=MANIP_TORSO, fl=None)
+    stm = replace(st, q=TUCK_RIGHT)
+    d = _plan_copy(cam)
+    q = np.asarray(TUCK_RIGHT, float).copy()
+    keys = [q.copy()]
+
+    def status(qq):
+        put(kin, d, replace(stm, q=tuple(qq)))
+        v = kin.violations(d, CLEAR_ARM, depth=False, target=False)
+        p, a = _tcp_base(kin, d)
+        put(kin, d, stm)
+        x0 = kin._x_base(d)
+        put(kin, d, replace(stm, q=tuple(qq)))
+        back = float(np.max(x0 - kin._x_base(d)))
+        return v, p, back
+
+    def report(qq):
+        v, p, back = status(qq)
+        out("  joints: " + "  ".join(f"{i + 1}:{x:+.2f}" for i, x in enumerate(qq)))
+        out(f"  hand (base frame): x {p[0]:+.2f} (forward)  y {p[1]:+.2f} (left)  z {p[2]:.2f}   "
+            f"arm {100 * max(back, 0):.0f} cm behind tuck")
+        out("  COLLISION: " + v[0] if v else "  collision-free")
+
+    def seg_ok(qa, qb):
+        return _arm_path_ok(kin, d, stm, [qb], start=qa, static_margin=CLEAR_ARM, depth=False, target=False)
+
+    out(TEACH_HELP)
+    out("  ranges: " + "  ".join(f"{i + 1}:[{lo:+.2f},{hi:+.2f}]" for i, (lo, hi) in enumerate(zip(kin.lo, kin.hi))))
+    report(q)
+    if display:
+        display(q)
+    for line in commands:
+        parts = line.strip().split()
+        if not parts:
+            continue
+        cmd = parts[0].lower()
+        if cmd in ("quit", "exit", "q"):
+            out("left without saving")
+            return None
+        if cmd == "show":
+            report(q)
+        elif cmd == "key":
+            v = seg_ok(keys[-1], q)
+            if v:
+                out(f"  NOT recorded: move from the previous keyframe collides ({v[0]})")
+            else:
+                keys.append(q.copy())
+                out(f"  keyframe {len(keys) - 1} recorded")
+        elif cmd == "undo":
+            if len(keys) > 1:
+                keys.pop()
+            q = keys[-1].copy()
+            out(f"  back to keyframe {len(keys) - 1}")
+            report(q)
+        elif cmd == "back":
+            q = keys[-1].copy()
+            report(q)
+        elif cmd == "done":
+            res = _finish_teach(cam, kin, st, stm, d, keys, out)
+            if res is not None:
+                return res
+        elif cmd.isdigit() and 1 <= int(cmd) <= 7 and len(parts) in (2, 3):
+            j = int(cmd) - 1
+            rel = len(parts) == 3 and parts[1] in ("+=", "-=")
+            try:
+                val = float(parts[-1])
+            except ValueError:
+                out("  usage: 2 -1.2   (set)   or   2 += 0.3 / 2 -= 0.3   (move)")
+                continue
+            if len(parts) == 3 and not rel:
+                out("  usage: 2 -1.2   (set)   or   2 += 0.3 / 2 -= 0.3   (move)")
+                continue
+            target = q[j] + (val if parts[1] == "+=" else -val) if rel else val
+            clipped = float(np.clip(target, kin.lo[j], kin.hi[j]))
+            if abs(clipped - target) > 1e-9:
+                out(f"  joint {j + 1} limited to its range [{kin.lo[j]:+.2f}, {kin.hi[j]:+.2f}]")
+            q = q.copy()
+            q[j] = clipped
+            report(q)
+        else:
+            out("  ? (type 'help' for commands)" if cmd != "help" else TEACH_HELP)
+        if display:
+            display(q)
+    return None
+
+
+def _finish_teach(cam, kin, st, stm, d, keys, out):
+    """Connect the last keyframe to a ready pose (IK seeded from it), verify, save."""
+    c, s_ = math.cos(st.yaw), math.sin(st.yaw)
+    fwd = np.array([c, s_, 0.0])
+    best = None
+    for bx, by, bz in READY_POINTS:
+        p = np.array([st.x + c * bx - s_ * by, st.y + s_ * bx + c * by, bz])
+        put(kin, d, replace(stm, q=tuple(keys[-1])))
+        qr, _ = kin.ik(d, p, fwd, [keys[-1]])
+        if qr is None:
+            continue
+        put(kin, d, replace(stm, q=tuple(qr), f=FINGER_OPEN))
+        if kin.violations(d, CLEAR_ARM, depth=False, target=False):
+            continue
+        if _arm_path_ok(kin, d, stm, [qr], start=keys[-1], static_margin=CLEAR_ARM, depth=False, target=False):
+            continue
+        path = keys + [qr]
+        back = kin.backward_excursion(d, stm, _densify(None, path))
+        cand = (round(back, 3), path_length(path), qr)
+        if best is None or cand[:2] < best[:2]:
+            best = cand
+    if best is None:
+        out("  no ready pose reachable in a straight joint move from the last keyframe without collision;"
+            " add another keyframe closer to the front (hand forward, ~1 m high) and try 'done' again")
+        return None
+    back, length, q_ready = best
+    path = keys + [q_ready]
+    UNFOLD_FILE.parent.mkdir(parents=True, exist_ok=True)
+    data = {"version": FETCH_VERSION, "created": datetime.now().isoformat(timespec="seconds"),
+            "source": "taught keyframes (--teach)", "tuck_right": list(TUCK_RIGHT), "torso": MANIP_TORSO,
+            "arm3_upper": ARM3_UPPER, "behind_allowance_m": BEHIND_ALLOWANCE,
+            "keyframes": [[float(v) for v in k] for k in keys[1:]],
+            "q_ready": [float(v) for v in q_ready],
+            "path": [[float(v) for v in x] for x in _densify(TUCK_RIGHT, path[1:])],
+            "waypoints": len(path), "joint_length_rad": round(length, 3), "backward_excursion_m": back}
+    UNFOLD_FILE.write_text(json.dumps(data, indent=1))
+    out(f"saved {UNFOLD_FILE}: {len(keys) - 1} keyframe(s) + ready pose, {length:.2f} rad, "
+        f"arm {100 * back:.1f} cm behind tuck at most; every step checked for collision and joint limits")
+    return data
+
+
+def teach_cli(scene):
+    """Viewer shows the robot; you type commands in this terminal."""
+    import mujoco.viewer
+    from caremate.agent_loop_v0_7 import START
+    from caremate.demo_v0_7 import DemoCamera
+    cam = DemoCamera(scene)
+    cam._set(START)
+    kin = Kin(cam.model)
+    st = replace(read_state(kin, cam.data), torso=MANIP_TORSO, fl=None)
+    show(cam, kin, replace(st, q=TUCK_RIGHT))
+    viewer = mujoco.viewer.launch_passive(cam.model, cam.data)
+    viewer.cam.lookat[:] = (st.x, st.y, 0.9)
+    viewer.cam.distance, viewer.cam.azimuth, viewer.cam.elevation = 2.2, 135.0, -15.0
+
+    def display(qq):
+        with viewer.lock():
+            show(cam, kin, replace(st, q=tuple(qq)))
+        viewer.sync()
+
+    def lines():
+        while viewer.is_running():
+            try:
+                yield input("teach> ")
+            except EOFError:
+                return
+
+    try:
+        teach_session(cam, lines(), display=display)
+    finally:
+        viewer.close()
+        cam.close()
+
+
+# ---------------------------------------------------------------- tuck pose check
+def check_tuck(cam, q_tuck, out=print, render=True):
+    """Is q_tuck usable as the right-arm home pose?  (1) inside the joint limits, (2) no self-collision
+    and no furniture contact at every base station and torso height, (3) not visible in the head camera
+    for any search view (it would occlude / confuse perception).  Returns True if all pass."""
+    m = cam.model
+    kin = Kin(m)
+    q_tuck = np.asarray(q_tuck, float)
+    ok_all = True
+    rng = m.jnt_range[kin.arm_j]
+    bad = [f"joint {i + 1} {q_tuck[i]:+.4f} outside [{rng[i, 0]:+.4f}, {rng[i, 1]:+.4f}]"
+           for i in range(7) if not (rng[i, 0] <= q_tuck[i] <= rng[i, 1])]
+    out("1) joint limits: " + ("OK" if not bad else "; ".join(bad)))
+    ok_all &= not bad
+    if ARM3_UPPER is not None and q_tuck[2] > ARM3_UPPER:
+        out(f"   note: joint 3 {np.degrees(q_tuck[2]):.0f} deg is above the {np.degrees(ARM3_UPPER):.0f} deg strict limit")
+    # (2) collisions: CLEAR_SELF to every other robot part (no home-pose allowance: this IS the home pose)
+    st0 = read_state(kin, cam.data)
+    d = _plan_copy(cam)
+    worst = []
+    for name, (x, y, yaw) in STATIONS.items():
+        for torso in (0.0, MANIP_TORSO):
+            put(kin, d, replace(st0, x=x, y=y, yaw=yaw, torso=torso, q=tuple(q_tuck)))
+            sd = min(((kin.self_distance(d, a, b, 0.1), (a, b)) for a, b in zip(kin.selfA, kin.selfB)),
+                     key=lambda t: t[0])
+            fd, fp = kin._sets_min(d, kin.robot_col, kin.static_obs, 0.3)
+            worst.append((sd[0], fd, name, torso, sd[1], fp))
+    wsd = min(worst, key=lambda w: w[0])
+    wfd = min(worst, key=lambda w: w[1])
+    out(f"2) self: closest {100 * wsd[0]:+.1f} cm ({kin.gname(wsd[4][0])}|{kin.gname(wsd[4][1])} at {wsd[2]}, "
+        f"torso {wsd[3]:.2f})" + ("  OK" if wsd[0] >= CLEAR_SELF else "  TOO CLOSE / COLLIDING"))
+    out(f"   furniture: closest {100 * wfd[1]:+.1f} cm at {wfd[2]}" + ("  OK" if wfd[1] >= CLEAR_BASE else "  TOO CLOSE"))
+    ok_all &= wsd[0] >= CLEAR_SELF and wfd[1] >= CLEAR_BASE
+    if not render:
+        return ok_all
+    # (3) head-camera visibility of the right arm, every search view
+    from caremate.agent_loop_v0_7 import CANDIDATES
+    arm_bodies = {b for b in range(m.nbody) if kin._below(b, int(m.jnt_bodyid[kin.arm_j[0]]))}
+    lj = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, "arm_left_1_joint")
+    if lj >= 0:      # the left arm (as currently posed) must not be in the search images either
+        arm_bodies |= {b for b in range(m.nbody) if kin._below(b, int(m.jnt_bodyid[lj]))}
+    W, H = 320, 240
+    r = mujoco.Renderer(m, height=H, width=W)
+    r.enable_segmentation_rendering()
+    dv = mujoco.MjData(m)
+    dv.qpos[:] = cam.data.qpos
+    from caremate.workspace_v0_7 import workspace_polygon
+    seen, in_roi = [], []
+    for v in CANDIDATES:
+        x, y, yaw = STATIONS[v.base]
+        put(kin, dv, replace(st0, x=x, y=y, yaw=yaw, torso=v.torso, pan=v.pan, tilt=v.tilt, q=tuple(q_tuck)))
+        mujoco.mj_forward(m, dv)
+        r.update_scene(dv, camera="head_rgb")
+        seg = r.render()
+        ids, types = seg[..., 0], seg[..., 1]
+        geom_mask = types == int(mujoco.mjtObj.mjOBJ_GEOM)
+        body = np.where(geom_mask & (ids >= 0), m.geom_bodyid[np.clip(ids, 0, m.ngeom - 1)], -1)
+        arm = np.isin(body, list(arm_bodies))
+        if arm.any():
+            seen.append((float(arm.mean()), v.name))
+            # Perception only searches the workspace ROI (table volume projected with camera FK).
+            poly = workspace_polygon(camera_pose_from_mujoco(m, dv), W, H)
+            if poly is not None:
+                roi = polygon_mask(poly, W, H) > 0
+                frac_roi = float((arm & roi).sum()) / max(1, int(roi.sum()))
+                if frac_roi > 0:
+                    in_roi.append((frac_roi, v.name))
+    r.close()
+    if seen:
+        seen.sort(reverse=True)
+        out(f"3) head camera: arms in the image in {len(seen)}/{len(CANDIDATES)} search views "
+            f"(max {100 * seen[0][0]:.1f}% of the image, {seen[0][1]})")
+    else:
+        out(f"3) head camera: arms not in the image in any of {len(CANDIDATES)} search views")
+    if in_roi:
+        in_roi.sort(reverse=True)
+        worst = in_roi[0][0]
+        verdict = ("OK - negligible (the robot can also mask its own links by forward kinematics)"
+                   if worst <= ROI_OCCLUSION_MAX else "NOT OK - occludes a real part of the table area")
+        out(f"   inside the perception ROI in {len(in_roi)} views, max {100 * worst:.2f}% of the ROI "
+            f"({in_roi[0][1]})  {verdict}")
+        ok_all &= worst <= ROI_OCCLUSION_MAX
+    else:
+        out("   never inside the perception ROI (table area)  OK - perception ignores those pixels")
+    out("=> usable as home pose" if ok_all else "=> NOT usable as home pose")
+    return ok_all
+
+
+# ---------------------------------------------------------------- interactive home-pose tuning
+TUNE_HELP = """--tune-tuck: drag the arm_right_* sliders in the viewer's Joint panel, or type here:
+  <j> <value> | <j> += <d> | <j> -= <d>   right-arm joint j (1-7), radians
+  view <i> | view next | view prev | view off   show search view i (0-53) in the head camera window
+  torso <m>         torso height (0-0.35) when no view is selected
+  show              print joints + checks          check   full --check-tuck on the current pose
+  print             print the pose as a TUCK_RIGHT line        quit"""
+
+
+def tune_cli(scene):
+    """Viewer + live head-camera window (perception ROI in cyan, right-arm pixels in red) + terminal."""
+    import queue
+    import threading
+
+    import cv2
+    import mujoco.viewer
+    from caremate.agent_loop_v0_7 import CANDIDATES, START
+    from caremate.demo_v0_7 import DemoCamera
+    from caremate.workspace_v0_7 import workspace_polygon
+
+    cam = DemoCamera(scene)
+    cam._set(START)
+    m, data = cam.model, cam.data
+    kin = Kin(m)
+    st = replace(read_state(kin, data), torso=MANIP_TORSO, fl=None)
+    arm_bodies = {b for b in range(m.nbody) if kin._below(b, int(m.jnt_bodyid[kin.arm_j[0]]))}
+    W, H = 640, 480
+    rgb_r = mujoco.Renderer(m, height=H, width=W)
+    seg_r = mujoco.Renderer(m, height=H, width=W)
+    seg_r.enable_segmentation_rendering()
+    dchk = mujoco.MjData(m)
+    state = {"q": np.asarray(TUCK_RIGHT, float).copy(), "view": None, "torso": MANIP_TORSO, "dirty": True}
+
+    def robot_state():
+        if state["view"] is None:
+            return replace(st, torso=state["torso"], q=tuple(state["q"]))
+        v = CANDIDATES[state["view"]]
+        x, y, yaw = STATIONS[v.base]
+        return replace(st, x=x, y=y, yaw=yaw, torso=v.torso, pan=v.pan, tilt=v.tilt, q=tuple(state["q"]))
+
+    def checks(rs):
+        dchk.qpos[:] = data.qpos
+        put(kin, dchk, rs)
+        sd = min(((kin.self_distance(dchk, a, b, 0.1), (a, b)) for a, b in zip(kin.selfA, kin.selfB)),
+                 key=lambda t: t[0])
+        fd, _ = kin._sets_min(dchk, kin.robot_col, kin.static_obs, 0.3)
+        return sd, fd
+
+    def status():
+        rs = robot_state()
+        sd, fd = checks(rs)
+        q = state["q"]
+        lim = [i + 1 for i in range(7) if not (m.jnt_range[kin.arm_j[i], 0] <= q[i] <= m.jnt_range[kin.arm_j[i], 1])]
+        print("  joints: " + "  ".join(f"{i + 1}:{x:+.3f}" for i, x in enumerate(q)))
+        print(f"  self {100 * sd[0]:+.1f} cm ({kin.gname(sd[1][0])}|{kin.gname(sd[1][1])})"
+              f"{'  OK' if sd[0] >= CLEAR_SELF else '  TOO CLOSE'}   furniture {100 * fd:+.1f} cm"
+              f"   limits {'OK' if not lim else 'OUT: ' + str(lim)}"
+              f"   view {state['view'] if state['view'] is not None else 'off'}", flush=True)
+
+    def head_image():
+        rgb_r.update_scene(data, camera="head_rgb")
+        img = cv2.cvtColor(rgb_r.render(), cv2.COLOR_RGB2BGR)
+        seg_r.update_scene(data, camera="head_rgb")
+        seg = seg_r.render()
+        ids, types = seg[..., 0], seg[..., 1]
+        body = np.where((types == int(mujoco.mjtObj.mjOBJ_GEOM)) & (ids >= 0),
+                        m.geom_bodyid[np.clip(ids, 0, m.ngeom - 1)], -1)
+        arm = np.isin(body, list(arm_bodies))
+        img[arm] = (0.4 * img[arm] + 0.6 * np.array([0, 0, 255])).astype(np.uint8)
+        poly = workspace_polygon(camera_pose_from_mujoco(m, data), W, H)
+        txt = f"arm in image {100 * arm.mean():.2f}%"
+        if poly is not None:
+            cv2.polylines(img, [np.round(poly).astype(np.int32)], True, (255, 255, 0), 1)
+            roi = polygon_mask(poly, W, H) > 0
+            inside = arm & roi
+            names = sorted({kin.bname(int(b)) for b in np.unique(body[inside])})
+            txt += f" | in ROI {inside.sum()} px" + (f" ({', '.join(names)})" if names else "")
+        cv2.rectangle(img, (0, H - 26), (W, H), (20, 20, 20), -1)
+        cv2.putText(img, txt[:110], (8, H - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+        return img
+
+    cmds = queue.Queue()
+
+    def reader():
+        while True:
+            try:
+                cmds.put(input())
+            except EOFError:
+                cmds.put("quit")
+                return
+
+    print(TUNE_HELP)
+    threading.Thread(target=reader, daemon=True).start()
+    viewer = mujoco.viewer.launch_passive(m, data)
+    viewer.cam.lookat[:] = (st.x, st.y, 0.9)
+    viewer.cam.distance, viewer.cam.azimuth, viewer.cam.elevation = 2.2, 135.0, -15.0
+    win = "head camera (cyan = perception ROI, red = right arm)"
+    last_q = None
+    try:
+        while viewer.is_running():
+            # slider edits in the viewer change data.qpos directly: adopt them
+            qd = data.qpos[kin.arm_adr].copy()
+            if last_q is not None and np.max(np.abs(qd - last_q)) > 1e-6:
+                state["q"], state["dirty"] = qd, True
+            while not cmds.empty():
+                parts = cmds.get().strip().split()
+                if not parts:
+                    continue
+                c = parts[0].lower()
+                if c in ("quit", "exit", "q"):
+                    viewer.close()
+                    break
+                if c == "show":
+                    status()
+                elif c == "print":
+                    print("TUCK_RIGHT = (" + ", ".join(f"{x:.4f}" for x in state["q"]) + ")", flush=True)
+                elif c == "check":
+                    check_tuck(cam, state["q"])
+                elif c == "view" and len(parts) == 2:
+                    n = len(CANDIDATES)
+                    v = state["view"]
+                    state["view"] = (None if parts[1] == "off" else ((v or 0) + 1) % n if parts[1] == "next"
+                                     else ((v or 0) - 1) % n if parts[1] == "prev" else int(parts[1]) % n)
+                    if state["view"] is not None:
+                        print(f"  view {state['view']}: {CANDIDATES[state['view']].name}", flush=True)
+                    state["dirty"] = True
+                elif c == "torso" and len(parts) == 2:
+                    state["torso"], state["dirty"] = float(np.clip(float(parts[1]), 0.0, 0.35)), True
+                elif c.isdigit() and 1 <= int(c) <= 7 and len(parts) in (2, 3):
+                    j = int(c) - 1
+                    try:
+                        val = float(parts[-1])
+                    except ValueError:
+                        print("  usage: 2 -1.2  or  2 += 0.3", flush=True)
+                        continue
+                    t = state["q"][j] + (val if parts[1] == "+=" else -val) if len(parts) == 3 else val
+                    lo, hi = m.jnt_range[kin.arm_j[j]]
+                    state["q"] = state["q"].copy()
+                    state["q"][j] = float(np.clip(t, lo, hi))
+                    state["dirty"] = True
+                else:
+                    print(TUNE_HELP, flush=True)
+            if not viewer.is_running():
+                break
+            if state["dirty"]:
+                with viewer.lock():
+                    show(cam, kin, robot_state())
+                last_q = data.qpos[kin.arm_adr].copy()
+                status()
+                state["dirty"] = False
+            else:
+                with viewer.lock():
+                    mujoco.mj_forward(m, data)
+                last_q = data.qpos[kin.arm_adr].copy()
+            viewer.sync()
+            cv2.imshow(win, head_image())
+            cv2.waitKey(30)
+    finally:
+        print("final pose: TUCK_RIGHT = (" + ", ".join(f"{x:.4f}" for x in state["q"]) + ")")
+        if viewer.is_running():
+            viewer.close()
+        cv2.destroyAllWindows()
+        rgb_r.close()
+        seg_r.close()
+        cam.close()
 
 
 # ---------------------------------------------------------------- CLI (headless check)
@@ -1805,10 +2506,47 @@ def main():
     p.add_argument("--refs", type=Path, default=ROOT / "references/v0_7")
     p.add_argument("--standin-sift", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--backend-url", default=None)
+    p.add_argument("--strict-limits", action="store_true",
+                   help="plan with arm_3 <= 45 deg (PAL dual-arm URDF) instead of the model's 90 deg")
+    p.add_argument("--behind-allowance", type=float, default=None,
+                   help="optional constraint: arm may go at most this far (m) further back than in the tuck pose")
+    p.add_argument("--check-tuck", default=None, metavar="Q1,...,Q7",
+                   help="check a candidate right-arm home pose (limits, collisions, head-camera visibility)")
+    p.add_argument("--tune-tuck", action="store_true",
+                   help="interactive: tune the right-arm home pose with the viewer + live head-camera window")
+    p.add_argument("--teach", action="store_true",
+                   help="interactive: pose the right arm by typed joint commands, record keyframes, save unfold")
+    p.add_argument("--precompute-unfold", action="store_true",
+                   help="offline: plan the tuck -> ready unfolding path thoroughly and save it to caremate/data/")
     p.add_argument("--check-stations", action="store_true",
                    help="only report robot-furniture clearance at the NBV base stations (arms tucked) and exit")
     a = p.parse_args()
+    global ARM3_UPPER, BEHIND_ALLOWANCE
+    BEHIND_ALLOWANCE = a.behind_allowance
+    if a.strict_limits:
+        ARM3_UPPER = math.radians(45)
     from caremate.demo_v0_7 import DemoCamera
+    if a.check_tuck:
+        cam = DemoCamera(a.scene)
+        try:
+            check_tuck(cam, [float(v) for v in a.check_tuck.split(",")])
+        finally:
+            cam.close()
+        return
+    if a.tune_tuck:
+        tune_cli(a.scene)
+        return
+    if a.teach:
+        teach_cli(a.scene)
+        return
+    if a.precompute_unfold:
+        cam = DemoCamera(a.scene)
+        cam._set(START)
+        try:
+            precompute_unfold(cam)
+        finally:
+            cam.close()
+        return
     if a.check_stations:
         cam = DemoCamera(a.scene)
         kin = Kin(cam.model)

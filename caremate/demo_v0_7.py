@@ -15,6 +15,8 @@ Examples (from ~/Desktop/caremate):
   python -m caremate.demo_v0_7 --seed 31 --episode 7 --policy active
   # record a video (works headless too: add --no-viewer, MUJOCO_GL=egl)
   python -m caremate.demo_v0_7 --target crunch_peanut --record outputs/demo_peanut.mp4
+  # after a localisation the robot fetches the object to the delivery table (fetch_v0_7,
+  # kinematic scripted manipulation); --no-fetch reproduces the v0.7 search-only demo
 """
 from __future__ import annotations
 
@@ -149,6 +151,7 @@ class Recorder:
             cv2.rectangle(frame, (self.w - iw - 13, 11), (self.w - 12, 12 + ih), (255, 255, 255), 1)
         _caption(frame, caption)
         self.writer.write(frame)
+        pump(1)     # keep the OpenCV window responsive while recording (GNOME "not responding")
 
     def hold(self, data, caption, seconds):
         for _ in range(int(seconds * FPS)):
@@ -180,6 +183,8 @@ def main():
     p.add_argument("--speed", type=float, default=1.0)
     p.add_argument("--standin-sift", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--backend-url", default=None, help="use the AWS perception service")
+    p.add_argument("--no-fetch", action="store_true",
+                   help="skip the kinematic fetch-and-deliver phase (fetch_v0_7)")
     a = p.parse_args()
 
     backend = make_backend(a)
@@ -220,7 +225,10 @@ def main():
         cam.caption = f"CareMate: find '{target}'  |  policy={a.policy}  |  OpenCV 5 ALIKED + USAC"
         rec.hold(cam.data, cam.caption, 1.5)
 
+    last = {}
+
     def on_step(step, view, why_view, bgr, res, roi, decision, reason):
+        last["res"] = res
         vis = draw(bgr, res, None, roi)
         vis = cv2.resize(vis, (640, 480))
         _caption(vis, f"step {step}: {decision} - {reason}")
@@ -240,9 +248,18 @@ def main():
     try:
         result = run_agent(target, backend, cam, POLICIES[a.policy](0), a.budget, out,
                            save_images=True, scene=a.scene.name, on_step=on_step)
+        summary = (f"RESULT: {result['outcome']} after {result['observations']} observation(s), "
+                   f"base travel {result['base_travel_m']:.2f} m")
         if rec:
-            rec.hold(cam.data, f"RESULT: {result['outcome']} after {result['observations']} observation(s), "
-                               f"base travel {result['base_travel_m']:.2f} m (grasp not authorised)", 3.0)
+            rec.hold(cam.data, summary + ("" if a.no_fetch else " -> fetch phase (kinematic demo)"), 2.0)
+        if not a.no_fetch:
+            from caremate.fetch_v0_7 import run_fetch
+            fetch = run_fetch(cam, result, last.get("res"), out, target, animate=True)
+            summary = f"FETCH: {fetch['outcome']} - {fetch.get('message', '')}"
+        else:
+            summary += " (grasp not authorised)"
+        if rec:
+            rec.hold(cam.data, summary, 3.0)
         if viewer is not None:
             print("Close the MuJoCo viewer window to exit.")
             while viewer.is_running():

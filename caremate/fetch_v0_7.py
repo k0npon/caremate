@@ -76,7 +76,7 @@ BEHIND_ALLOWANCE = None   # m the elbow / wrist / fingers may move further back 
 # None = no such constraint (default): on the real TIAGo model even 12 cm left RRT without a path from the
 # tuck pose; instead the offline precompute keeps the SHORTEST of several paths, which removes big swings.
 ARM3_UPPER = None   # set by --strict-limits (45 deg, PAL dual-arm URDF) - the model allows 90 deg
-FETCH_VERSION = "fetch_v0_7 r30 (2026-10-21 20:25)"
+FETCH_VERSION = "fetch_v0_7 r31 (2026-10-21 20:40)"
 
 # IK (uncalibrated, chosen for the demo)
 TOL_POS = 0.010
@@ -1534,6 +1534,7 @@ class Animator:
         self.attach: Attachment | None = None
         self.placing = False
         self.lifted = False
+        self.obj_hits = {}
         self.frames = 0
         k = kin
         self.lim_margin = np.full(len(k.audit_j), np.inf)       # min distance to either limit
@@ -1572,6 +1573,23 @@ class Animator:
         others = np.array([g for b, gs in k.obj_geoms.items() if not (self.attach and b == self.attach.body)
                            for g in gs], int)
         oo = k._sets_min(d, k.robot_col, others, 0.2)
+        # Per object: robot (and the carried object) vs every other movable object.  Which one is the
+        # target is only known afterwards (offline scoring), so penetrations are kept per object and the
+        # grasped one is excluded in the report.
+        for b, gs in k.obj_geoms.items():
+            if self.attach is not None and b == self.attach.body:
+                continue
+            dist, pair = k._sets_min(d, k.robot_col, gs, 0.05)
+            if self.attach is not None and not self.placing:
+                dh, ph = k._sets_min(d, k.obj_geoms[self.attach.body], gs, 0.05)
+                if dh < dist:
+                    dist, pair = dh, ph
+            if dist < -0.002:
+                rec = self.obj_hits.setdefault(b, {"frames": 0, "min_m": 0.0, "pair": None, "phase": None})
+                rec["frames"] += 1
+                if dist < rec["min_m"]:
+                    rec["min_m"], rec["pair"], rec["phase"] = dist, f"{k.gname(pair[0])}|{k.gname(pair[1])}", \
+                        self.cam.caption
         hf = ((1.0, None) if self.attach is None or self.placing or not self.lifted
               else k._sets_min(d, k.obj_geoms[self.attach.body], k.static_obs, 0.2))
         c = self.check
@@ -1957,6 +1975,7 @@ def run_fetch(cam, agent_result: dict, last_res, out: Path | None = None, target
             return log
         _, _, c_axis = kin.tool(cam.data)
         anim.attach = Attachment(kin, cam.data, body)
+        log["_grasped_body"] = body
         kin.target_pts = np.zeros((0, 3))       # now held: modelled by HeldBox instead
         held = HeldBox(kin, cam.data, centre, face["normal_xy"] if face else (1.0, 0.0),
                        face["half_width"] if face else 0.04, max(0.02, centre[2] - TABLE_Z))
@@ -2040,6 +2059,11 @@ def run_fetch(cam, agent_result: dict, last_res, out: Path | None = None, target
                f"Delivered '{obj}' next to the resident (kinematic demo; identity from OpenCV 5 evidence, uncalibrated)")
         return log
     finally:
+        grasped_body = anim.attach.body if anim.attach is not None else log.get("_grasped_body")
+        hits = {kin.bname(b): _r(h) for b, h in anim.obj_hits.items() if b != grasped_body}
+        anim.check["other_object_collisions"] = hits
+        anim.check["frames_in_collision"] += sum(h["frames"] for h in hits.values())
+        log.pop("_grasped_body", None)
         log["execution_check"] = _r(anim.check)
         log["joint_limits_check"] = anim.joint_report()
         log["frames"] = anim.frames

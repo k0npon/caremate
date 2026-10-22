@@ -5,7 +5,7 @@ ALIKED features, BF+mutual matching, USAC/MAGSAC verification, look-alike check.
 What stays on the robot/laptop: MuJoCo simulation, planning (next-best-view), control.
 
 ## 1. Launch the instance (EC2 console, region eu-north-1 Stockholm)
-- AMI: Ubuntu Server 24.04 LTS (x86_64). Instance type: c7i-flex.large (2 vCPU, 4 GiB, free-tier eligible) or t3.small.
+- AMI: Ubuntu Server 26.04 LTS (x86_64). Instance type: c7i-flex.large (2 vCPU, 4 GiB, free-tier eligible) or t3.small.
   (An arm64 Graviton t4g.medium also works: the OpenCV 5.0.0 contrib wheel exists for aarch64.)
 - Key pair: create one, download the `.pem`.
 - Network: allow SSH (22) from *My IP*; tick "Allow HTTP traffic from the internet" (the container is published on port 80).

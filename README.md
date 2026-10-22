@@ -105,7 +105,8 @@ git clone https://github.com/k0npon/caremate.git && cd caremate
 mamba env create -f environment.yml && mamba activate caremate
 ```
 
-### Assets (downloaded, not redistributed)
+### Assets (not included in this repository: download them with the commands below)
+The robot, furniture and scanned-object models come from their original repositories under their own licences.
 ```bash
 # TIAGo++ (MuJoCo Menagerie) + MuJoCo humanoid -> models/
 bash scripts/setup_assets.sh
@@ -147,11 +148,13 @@ echo "b46868de0794ea0f2d878985d99dc17d3639dfab85d852994254a4cdf0cdc0ea  models/v
 
 ### Tests
 ```bash
+python -m pip install pytest      # test runner (not needed to run the demo)
 python -m pytest tests -q
 ```
 
 ## Run
 
+Each line below is a separate example; run them one at a time.
 ```bash
 # demo: viewer + live head camera + OpenCV overlay, then fetch
 python -m caremate.demo_v0_7 --target crunch_peanut
@@ -160,14 +163,16 @@ MUJOCO_GL=egl python -m caremate.demo_v0_7 --target reading_book --record output
 # search only, no fetch
 python -m caremate.demo_v0_7 --target cereal_box --no-fetch
 # use the AWS service for perception
-python -m caremate.demo_v0_7 --target crunch_peanut --backend-url http://<endpoint>/
+python -m caremate.demo_v0_7 --target crunch_peanut --backend-url https://d30yg571a7jig2.cloudfront.net
 # fetch headless, prints the execution check
 MUJOCO_GL=egl python -m caremate.fetch_v0_7 --target crunch_caramel
 # evaluation (randomised layouts, paired policies)
 MUJOCO_GL=egl python -m caremate.eval_v0_7 --help
 ```
 Targets: `crunch_peanut`, `crunch_caramel`, `reading_book`, `cereal_box`. Outputs (traces, step images,
-videos) go to `outputs/` (git-ignored).
+videos) go to `outputs/` (git-ignored). The first run spends ~10–40 s computing reference features (warm-up).
+Harmless warnings: OpenCV `setPreferableTarget ... new graph engine`, Qt `Cannot find font directory`, and GLFW
+`Wayland: The platform does not provide the window position`.
 
 ## Cloud service (AWS EC2)
 
@@ -236,7 +241,12 @@ Local vs cloud benchmark: `python -m caremate.bench_remote_v0_7 --backend-url ht
 - Objects not seen from the robot's views are not in the obstacle set (see the `cereal_box` mug contact).
 - Arm joint 3 uses the model's ±90° limit; a newer public TIAGo++ description lists 45°.
 - LightGlue (OpenCV 5) is integrated but the reported results use the brute-force matcher.
-- Small evaluation samples; one wrong-object result each in two configurations is not yet analysed.
+- Small evaluation samples.
+- **Known wrong identification:** in 1 of 84 target-present layouts (seed 31, an occluded layout) the robot accepted
+  the caramel look-alike as the peanut-butter box. The accepted match covered only the CRUNCH logo that both boxes
+  share, so no inlier could tell them apart, and the look-alike colour check did not run because the caramel
+  reference was not matched in that view. Planned fixes, not made before the deadline: always run the colour check
+  with the target's own homography, and remember regions that were ambiguous earlier.
 
 ## Responsible use
 

@@ -36,3 +36,9 @@ bash deploy/ec2_bootstrap.sh            # prints the API token at the end
 - Optional bearer token; upload and image size capped; non-root container with CPU/memory limits and log rotation.
 - Cost: a few US cents per hour, charged to credits. Stop the instance when not demonstrating (the public IP can change on restart).
 - Plain HTTP for the demo; put a load balancer or CloudFront with TLS in front for anything beyond a demo.
+
+## 4. HTTPS with CloudFront (used for the submission)
+- CloudFront distribution, origin type "Other", origin domain = the instance's Public IPv4 DNS, origin protocol HTTP only (port 80), response timeout 60 s.
+- Viewer protocol policy: Redirect HTTP to HTTPS; allowed methods: all (POST/DELETE needed); cache policy: CachingDisabled; origin request policy: AllViewer; no WAF (its default body-size rule blocks image uploads).
+- Elastic IP on the instance so the origin DNS never changes.
+- Security group: HTTP (80) only from the managed prefix list `com.amazonaws.global.cloudfront.origin-facing`; SSH (22) only from My IP. Direct `http://<ip>/` is then blocked.

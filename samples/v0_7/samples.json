@@ -1,0 +1,318 @@
+[
+ {
+  "id": "1_start_peanut",
+  "title": "1. Start view: asked for the peanut-butter Crunch",
+  "caption": "The box in front is the caramel flavour: same brand, same layout. The geometric match is strong, but the colour check says the region is the look-alike, so it is rejected (orange) and the robot keeps searching.",
+  "target": "crunch_peanut",
+  "view": "front_t0.000_p+0.00_k-0.40",
+  "scene": "default",
+  "roi_polygon": [
+   [
+    1279.0,
+    442.9
+   ],
+   [
+    685.6,
+    449.5
+   ],
+   [
+    681.9,
+    430.3
+   ],
+   [
+    666.5,
+    354.1
+   ],
+   [
+    651.5,
+    284.5
+   ],
+   [
+    648.0,
+    268.2
+   ],
+   [
+    646.4,
+    172.1
+   ],
+   [
+    650.2,
+    93.8
+   ],
+   [
+    650.6,
+    86.0
+   ],
+   [
+    652.8,
+    79.3
+   ],
+   [
+    654.5,
+    74.1
+   ],
+   [
+    659.9,
+    57.6
+   ],
+   [
+    661.2,
+    53.5
+   ],
+   [
+    681.9,
+    0.0
+   ],
+   [
+    1279.0,
+    0.0
+   ]
+  ],
+  "expected": {
+   "status": "not_found",
+   "n_inliers": 53,
+   "decision": "REOBSERVE",
+   "reason": "matched region is actually ['crunch_caramel']; keep searching elsewhere"
+  }
+ },
+ {
+  "id": "2_start_caramel",
+  "title": "2. Same view: asked for the caramel Crunch",
+  "caption": "Same image, different request: now that box is the target and is accepted (green).",
+  "target": "crunch_caramel",
+  "view": "front_t0.000_p+0.00_k-0.40",
+  "scene": "default",
+  "roi_polygon": [
+   [
+    1279.0,
+    442.9
+   ],
+   [
+    685.6,
+    449.5
+   ],
+   [
+    681.9,
+    430.3
+   ],
+   [
+    666.5,
+    354.1
+   ],
+   [
+    651.5,
+    284.5
+   ],
+   [
+    648.0,
+    268.2
+   ],
+   [
+    646.4,
+    172.1
+   ],
+   [
+    650.2,
+    93.8
+   ],
+   [
+    650.6,
+    86.0
+   ],
+   [
+    652.8,
+    79.3
+   ],
+   [
+    654.5,
+    74.1
+   ],
+   [
+    659.9,
+    57.6
+   ],
+   [
+    661.2,
+    53.5
+   ],
+   [
+    681.9,
+    0.0
+   ],
+   [
+    1279.0,
+    0.0
+   ]
+  ],
+  "expected": {
+   "status": "candidate",
+   "n_inliers": 60,
+   "decision": "STOP_LOCALISED",
+   "reason": "60 geometric inliers, support fully inside frame, no unresolved look-alike"
+  }
+ },
+ {
+  "id": "3_moved_peanut",
+  "title": "3. After moving: asked for the peanut-butter Crunch again",
+  "caption": "The next-best-view planner drove to the front-right station. The real target is now visible and accepted; only then does the robot fetch it.",
+  "target": "crunch_peanut",
+  "view": "front_right_t0.350_p+0.00_k-0.60",
+  "scene": "default",
+  "roi_polygon": [
+   [
+    0.0,
+    318.4
+   ],
+   [
+    0.0,
+    200.8
+   ],
+   [
+    0.0,
+    199.8
+   ],
+   [
+    381.3,
+    119.2
+   ],
+   [
+    638.4,
+    71.7
+   ],
+   [
+    749.0,
+    83.1
+   ],
+   [
+    1007.4,
+    108.9
+   ],
+   [
+    1027.7,
+    110.9
+   ],
+   [
+    1022.9,
+    130.1
+   ],
+   [
+    977.5,
+    314.3
+   ],
+   [
+    947.0,
+    353.1
+   ],
+   [
+    845.7,
+    481.7
+   ],
+   [
+    570.0,
+    818.6
+   ],
+   [
+    508.2,
+    779.6
+   ],
+   [
+    248.1,
+    612.9
+   ],
+   [
+    91.4,
+    508.8
+   ],
+   [
+    78.5,
+    500.2
+   ],
+   [
+    63.7,
+    470.7
+   ]
+  ],
+  "expected": {
+   "status": "candidate",
+   "n_inliers": 30,
+   "decision": "STOP_LOCALISED",
+   "reason": "30 geometric inliers, support fully inside frame, no unresolved look-alike"
+  }
+ },
+ {
+  "id": "4_absent_book",
+  "title": "4. Object not there: asked for the reading book",
+  "caption": "The book is not on the table. The service answers not_found instead of guessing; after its view budget the robot says \"Cannot verify, please help\".",
+  "target": "reading_book",
+  "view": "front_t0.000_p+0.00_k-0.40",
+  "scene": "no_book",
+  "roi_polygon": [
+   [
+    1279.0,
+    442.9
+   ],
+   [
+    685.6,
+    449.5
+   ],
+   [
+    681.9,
+    430.3
+   ],
+   [
+    666.5,
+    354.1
+   ],
+   [
+    651.5,
+    284.5
+   ],
+   [
+    648.0,
+    268.2
+   ],
+   [
+    646.4,
+    172.1
+   ],
+   [
+    650.2,
+    93.8
+   ],
+   [
+    650.6,
+    86.0
+   ],
+   [
+    652.8,
+    79.3
+   ],
+   [
+    654.5,
+    74.1
+   ],
+   [
+    659.9,
+    57.6
+   ],
+   [
+    661.2,
+    53.5
+   ],
+   [
+    681.9,
+    0.0
+   ],
+   [
+    1279.0,
+    0.0
+   ]
+  ],
+  "expected": {
+   "status": "not_found",
+   "n_inliers": 0,
+   "decision": "REOBSERVE",
+   "reason": "no geometrically consistent evidence for target in this view"
+  }
+ }
+]

@@ -18,6 +18,9 @@ Endpoints
                           tilted smaller view, look-alike report).  Takes effect immediately for
                           every robot using this service.
   DELETE /v1/references/{name}   remove an enrolled (not built-in) object
+  GET  /v1/samples        demo head-camera frames from the simulation (for judges / visitors)
+  GET  /samples/{id}.png  one sample frame (raw, so it can also be downloaded and uploaded)
+  POST /v1/samples/{id}/perceive   run /v1/perceive on a sample with its stored ROI (no upload)
 
 Security / responsible delivery
   * If CAREMATE_API_TOKEN is set, /v1/perceive requires "Authorization: Bearer <token>".
@@ -43,7 +46,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from caremate import enrol_v0_7 as enrol
 from caremate.perception_v0_7 import PerceptionBackend, draw
@@ -54,6 +57,7 @@ REFS = Path(os.environ.get("CAREMATE_REFS", ROOT / "references/v0_7"))
 TOKEN = os.environ.get("CAREMATE_API_TOKEN", "")
 ADMIN_TOKEN = os.environ.get("CAREMATE_ADMIN_TOKEN", "")
 REF_STORE = Path(os.environ.get("CAREMATE_REF_STORE", "/data/references"))
+SAMPLES = Path(os.environ.get("CAREMATE_SAMPLES", ROOT / "samples/v0_7"))
 MAX_BYTES = 8 * 1024 * 1024
 MAX_SIDE = 2048
 
@@ -61,6 +65,7 @@ app = FastAPI(title="CareMate perception service", version="0.7")
 _lock = threading.Lock()
 _backend: PerceptionBackend | None = None
 _info: dict = {}
+_samples: dict = {}      # id -> metadata (samples.json); images are read from SAMPLES on demand
 
 
 def backend() -> PerceptionBackend:
@@ -86,10 +91,20 @@ def backend() -> PerceptionBackend:
     return _backend
 
 
+def _load_samples():
+    f = SAMPLES / "samples.json"
+    if f.is_file():
+        for s in json.loads(f.read_text()):
+            if (SAMPLES / f"{s['id']}.png").is_file():
+                _samples[s["id"]] = s
+    _info["samples"] = sorted(_samples)
+
+
 @app.on_event("startup")
 def _startup():
     with _lock:
         backend()
+    _load_samples()
 
 
 def _log(**kw):
@@ -121,7 +136,8 @@ def _admin(authorization: str | None):
 async def enrol_reference(image: UploadFile = File(...), name: str = Form(...), face: str = Form("front"),
                           bbox: str | None = Form(None), dry_run: int = Form(0),
                           authorization: str | None = Header(None)):
-    _admin(authorization)
+    if not dry_run:                   # checking only (nothing stored) is open; storing needs staff token
+        _admin(authorization)
     name, face = name.strip().lower(), face.strip().lower()
     if not enrol.NAME_RE.match(name) or not enrol.FACE_RE.match(face):
         raise HTTPException(400, "name: lowercase letters/digits/_ (2-41 chars); face: 1-16 letters/digits")
@@ -201,6 +217,28 @@ async def perceive(image: UploadFile = File(...), target: str = Form(...),
         raise HTTPException(400, "roi_polygon / camera_pose / origin / frame_wh must be JSON")
     if roi is not None and (roi.ndim != 2 or roi.shape[1] != 2 or len(roi) < 3):
         raise HTTPException(400, "roi_polygon must be a list of >= 3 [x, y] points")
+    return JSONResponse(_run(bgr, target, roi, pose, org, fwh, overlay, t_recv, len(data)))
+
+
+def _explain(res) -> str:
+    """One plain sentence for the web page (same rules as the robot's decision)."""
+    unresolved = [n for n, c in res.competitors.items() if c.get("resolution") == "unresolved"]
+    rejected = sorted({n for r in res.rejected_instances for n in r["is_actually"]} |
+                      {n for n, c in res.competitors.items() if c.get("resolution") == "region_is_competitor"})
+    if res.status == "candidate" and not res.touches_border and not unresolved:
+        return f"{res.n_inliers} geometric inliers, fully inside the frame, no unresolved look-alike: the robot may stop here."
+    if res.status == "candidate":
+        return "Target touches the image border (may be cut off): the robot looks again."
+    if res.status == "ambiguous":
+        return "; ".join(res.notes) if res.notes else f"Look-alike(s) {unresolved} explain the same region: the robot needs a clearer view."
+    if res.status == "not_found" and rejected:
+        return f"The matching region is actually {', '.join(rejected)} (a look-alike), so it is rejected: the robot keeps searching."
+    if res.status == "error":
+        return f"Perception error ({res.error}): the robot does not assume anything."
+    return "No geometrically consistent evidence for this object: the robot looks elsewhere, then asks for help."
+
+
+def _run(bgr, target, roi, pose, org, fwh, overlay, t_recv, nbytes, source="upload") -> dict:
     be = backend()
     if target not in be.refs:
         raise HTTPException(404, f"unknown target; known: {sorted(be.refs)}")
@@ -209,14 +247,46 @@ async def perceive(image: UploadFile = File(...), target: str = Form(...),
         res = be.perceive(bgr, target, camera_pose=pose, roi_polygon=roi, origin=org, frame_wh=fwh)
     t_inf = time.perf_counter() - t0
     out = res.to_json()
+    out["explanation"] = _explain(res)
     out["server"] = {"decode_ms": round(1000 * (t0 - t_recv), 1),
                      "inference_ms": round(1000 * t_inf, 1),
-                     "image_wh": [bgr.shape[1], bgr.shape[0]], "bytes": len(data)}
+                     "image_wh": [bgr.shape[1], bgr.shape[0]], "bytes": nbytes}
     if overlay:
         ok, png = cv2.imencode(".png", draw(bgr, res, None, roi))
         out["overlay_png_base64"] = base64.b64encode(png.tobytes()).decode() if ok else None
-    _log(event="perceive", target=target, status=res.status, inliers=res.n_inliers,
-         image_id=res.image_id, inference_ms=out["server"]["inference_ms"], bytes=len(data))
+    _log(event="perceive", source=source, target=target, status=res.status, inliers=res.n_inliers,
+         image_id=res.image_id, inference_ms=out["server"]["inference_ms"], bytes=nbytes)
+    return out
+
+
+@app.get("/v1/samples")
+def samples():
+    return {"samples": [{k: s[k] for k in ("id", "title", "caption", "target", "view", "expected")}
+                        for s in _samples.values()]}
+
+
+def _sample(sid: str) -> dict:
+    if sid not in _samples:           # only ids from samples.json: no path traversal
+        raise HTTPException(404, "unknown sample")
+    return _samples[sid]
+
+
+@app.get("/samples/{sid}.png")
+def sample_image(sid: str):
+    _sample(sid)
+    return FileResponse(SAMPLES / f"{sid}.png", media_type="image/png")
+
+
+@app.post("/v1/samples/{sid}/perceive")
+def sample_perceive(sid: str, authorization: str | None = Header(None)):
+    if TOKEN and authorization != f"Bearer {TOKEN}":
+        raise HTTPException(401, "missing or wrong bearer token")
+    s = _sample(sid)
+    t_recv = time.perf_counter()
+    bgr = cv2.imread(str(SAMPLES / f"{sid}.png"), cv2.IMREAD_COLOR)
+    roi = np.asarray(s["roi_polygon"], np.float32) if s.get("roi_polygon") else None
+    out = _run(bgr, s["target"], roi, None, [0, 0], None, 1, t_recv, 0, source=f"sample:{sid}")
+    out["sample"] = {k: s[k] for k in ("id", "title", "caption", "view", "expected")}
     return JSONResponse(out)
 
 
@@ -227,9 +297,17 @@ PAGE = """<!doctype html><html><head><meta charset=utf-8>
 background:#fafafa;color:#222}img{max-width:100%;border:1px solid #ccc}pre{background:#eee;
 padding:8px;overflow:auto;font-size:12px}label{display:block;margin:8px 0}</style></head><body>
 <h2>CareMate &mdash; OpenCV 5 target verification on AWS</h2>
-<p>Upload a robot camera frame and choose the object to verify. The service answers
-<b>candidate / ambiguous / not_found</b>; it never claims a calibrated probability and
-never authorises grasping. Images are not stored.</p>
+<p>A care robot is asked to fetch an item. Before it acts, this service checks the robot's camera image with
+OpenCV 5 (ALIKED features + USAC/MAGSAC homography + a colour check against look-alikes) and answers
+<b>candidate / ambiguous / not_found</b>. It never claims a calibrated probability and never authorises
+grasping. Images are not stored.</p>
+<h3>Try it: frames from the robot's head camera (simulation)</h3>
+<p>Each button sends one simulated head-camera frame to OpenCV 5 running on this AWS instance.
+Green = accepted target, orange = rejected look-alike; the outlined polygon is the workspace region searched.</p>
+<div id=sb></div><p id=ss style="font-weight:600"></p><p id=sx></p><img id=so><pre id=sj></pre>
+<hr><h3>Upload your own frame</h3>
+<p>Choose the object to verify and upload an image (for example, one of the sample frames above:
+<span id=sl></span>).</p>
 <form id=f><label>Target <select name=target id=t></select></label>
 <label>Image <input type=file name=image accept="image/*" required></label>
 <label>API token (if required) <input id=k type=password></label>
@@ -237,28 +315,37 @@ never authorises grasping. Images are not stored.</p>
 <hr><h3>Staff: enrol a new object</h3>
 <p>One clear, front-on photo of a <b>printed, flat</b> face (box, carton, book). Plain mugs or bottles are
 rejected: they have too little texture for reliable verification. A new object is usable by every robot
-immediately.</p>
+immediately, with no retraining.</p>
+<p><b>Anyone can try the acceptance check</b> with a photo of a box on their desk (tick "only check": the photo
+is checked in memory and not stored). Storing a new object needs the staff token.</p>
 <form id=e><label>Name (e.g. blister_pack_a) <input name=name required pattern="[a-z][a-z0-9_]{1,40}"></label>
 <label>Face <input name=face value=front></label>
 <label>Photo <input type=file name=image accept="image/*" required></label>
-<label>Admin token <input id=ak type=password required></label>
-<label><input type=checkbox id=dry> only check, do not store</label>
+<label>Admin token (only to store) <input id=ak type=password></label>
+<label><input type=checkbox id=dry checked> only check, do not store</label>
 <button>Enrol</button></form><p id=es></p><img id=eo style="max-height:240px"><pre id=ej></pre>
 <script>
+const show=(d,ok,st,ex,im,js)=>{if(d.overlay_png_base64){im.src='data:image/png;base64,'+d.overlay_png_base64;delete d.overlay_png_base64}
+ st.textContent=ok?(d.target+': '+d.status.toUpperCase()+' ('+d.n_inliers+' inliers, '+d.server.inference_ms+' ms on the server)'):'error';
+ if(ex)ex.textContent=d.explanation||'';js.textContent=JSON.stringify(d,null,1)};
+fetch('/v1/samples').then(r=>r.json()).then(d=>{for(const s of d.samples){
+ const b=document.createElement('button');b.textContent=s.title;b.style.cssText='display:block;margin:6px 0;text-align:left';
+ b.onclick=async()=>{ss.textContent='running OpenCV 5 on AWS...';sx.textContent=s.caption;so.removeAttribute('src');
+  const r=await fetch('/v1/samples/'+s.id+'/perceive',{method:'POST'});const d=await r.json();
+  show(d,r.ok,ss,null,so,sj);if(r.ok)sx.textContent=s.caption+' Result: '+d.explanation};sb.appendChild(b);
+ const a=document.createElement('a');a.href='/samples/'+s.id+'.png';a.textContent=s.id;a.download='';sl.append(a,' ')}});
 fetch('/v1/references').then(r=>r.json()).then(d=>{for(const n of Object.keys(d.references)){
  const o=document.createElement('option');o.textContent=n;t.appendChild(o)}});
 e.onsubmit=async ev=>{ev.preventDefault();const fd=new FormData(e);fd.append('dry_run',dry.checked?'1':'0');
- es.textContent='checking...';const r=await fetch('/v1/references',{method:'POST',body:fd,
- headers:{Authorization:'Bearer '+ak.value}});const d=await r.json();
+ es.textContent='checking...';const eh={};if(ak.value)eh.Authorization='Bearer '+ak.value;
+ const r=await fetch('/v1/references',{method:'POST',body:fd,headers:eh});const d=await r.json();
  if(d.reference_png_base64){eo.src='data:image/png;base64,'+d.reference_png_base64;delete d.reference_png_base64}
  es.textContent=r.status==200?('ACCEPTED: '+d.name+' ('+d.note+')'):('REJECTED ('+r.status+'): '+(d.reason||d.detail));
  ej.textContent=JSON.stringify(d,null,1);if(r.status==200&&!dry.checked)location.reload()};
 f.onsubmit=async e=>{e.preventDefault();const fd=new FormData(f);fd.append('overlay','1');
  s.textContent='running...';const h={};if(k.value)h.Authorization='Bearer '+k.value;
  const r=await fetch('/v1/perceive',{method:'POST',body:fd,headers:h});const d=await r.json();
- if(d.overlay_png_base64){o.src='data:image/png;base64,'+d.overlay_png_base64;delete d.overlay_png_base64}
- s.textContent=r.ok?(d.target+': '+d.status.toUpperCase()+' ('+d.n_inliers+' inliers, '+
- d.server.inference_ms+' ms)'):'error '+r.status;j.textContent=JSON.stringify(d,null,1)};
+ show(d,r.ok,s,null,o,j);if(r.ok)s.textContent+=' \u2014 '+d.explanation};
 </script></body></html>"""
 
 

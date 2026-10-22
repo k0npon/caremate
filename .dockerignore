@@ -7,3 +7,7 @@
 !caremate/service/
 !references/v0_7/
 caremate/service/__pycache__
+
+# demo frames for the web page
+!samples/v0_7
+!samples/v0_7/**

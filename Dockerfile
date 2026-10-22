@@ -17,6 +17,7 @@ RUN mkdir -p models/vision \
 COPY caremate/__init__.py caremate/perception_v0_7.py caremate/workspace_v0_7.py caremate/enrol_v0_7.py caremate/
 COPY caremate/service caremate/service
 COPY references/v0_7 references/v0_7
+COPY samples/v0_7 samples/v0_7
 
 RUN useradd --system --uid 10001 caremate && mkdir -p /data/references && chown caremate /data/references
 USER caremate
